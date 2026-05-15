@@ -1,0 +1,272 @@
+# Retrain Models Pipeline for ChangeTrace
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - ml/training/*
+      - ml/models/*
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - ml/training/*
+      - ml/models/*
+
+schedules:
+  - cron: '0 2 * * 0'  # Weekly on Sunday at 2 AM
+    displayName: Weekly model retraining
+    branches:
+      include:
+        - main
+    always: true
+
+variables:
+  - name: pythonVersion
+    value: '3.12'
+  - name: modelRegistryName
+    value: 'changetrace-models'
+  - name: computeTarget
+    value: 'changetrace-compute'
+
+stages:
+  - stage: PrepareData
+    displayName: Prepare Training Data
+    jobs:
+      - job: PrepareData
+        displayName: Prepare Training Data
+        pool:
+          vmImage: 'ubuntu-latest'
+        timeoutInMinutes: 30
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: $(pythonVersion)
+          
+          - task: Cache@2
+            inputs:
+              key: 'pip | "$(Agent.OS)" | ml/training/requirements.txt'
+              restoreKeys: |
+                pip | "$(Agent.OS)"
+              path: $(PIP_CACHE_DIR)
+          
+          - script: |
+              pip install -r ml/training/requirements.txt
+            displayName: 'Install ML dependencies'
+          
+          - script: |
+              python ml/training/prepare_training_data.py \
+                --output-dir ml/training/data \
+                --lookback-days 30 \
+                --min-samples 100
+            displayName: 'Prepare training data from Cosmos DB'
+          
+          - publish: ml/training/data
+            artifact: training-data
+            displayName: 'Publish training data'
+
+  - stage: TrainConfidenceModel
+    displayName: Train Confidence Model
+    dependsOn: PrepareData
+    condition: succeeded()
+    jobs:
+      - job: TrainConfidenceModel
+        displayName: Train Root Cause Confidence Model
+        pool:
+          vmImage: 'ubuntu-latest'
+        timeoutInMinutes: 60
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: $(pythonVersion)
+          
+          - download: current
+            artifact: training-data
+            displayName: 'Download training data'
+          
+          - script: |
+              pip install -r ml/training/requirements.txt
+            displayName: 'Install ML dependencies'
+          
+          - script: |
+              python ml/training/train_confidence_model.py \
+                --data-dir $(Pipeline.Workspace)/training-data \
+                --output-dir ml/models/confidence \
+                --model-name confidence_model \
+                --n-estimators 200 \
+                --learning-rate 0.05 \
+                --max-depth 6 \
+                --calibrate isotonic
+            displayName: 'Train confidence model'
+          
+          - script: |
+              python ml/training/evaluate_model.py \
+                --model-dir ml/models/confidence \
+                --data-dir $(Pipeline.Workspace)/training-data \
+                --output evaluation_report.json
+            displayName: 'Evaluate confidence model'
+          
+          - publish: ml/models/confidence
+            artifact: confidence-model
+            displayName: 'Publish confidence model'
+          
+          - publish: evaluation_report.json
+            artifact: confidence-evaluation
+            displayName: 'Publish evaluation report'
+
+  - stage: TrainRiskModel
+    displayName: Train Risk Model
+    dependsOn: PrepareData
+    condition: succeeded()
+    jobs:
+      - job: TrainRiskModel
+        displayName: Train Deployment Risk Model
+        pool:
+          vmImage: 'ubuntu-latest'
+        timeoutInMinutes: 60
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: $(pythonVersion)
+          
+          - download: current
+            artifact: training-data
+            displayName: 'Download training data'
+          
+          - script: |
+              pip install -r ml/training/requirements.txt
+            displayName: 'Install ML dependencies'
+          
+          - script: |
+              python ml/training/train_risk_model.py \
+                --data-dir $(Pipeline.Workspace)/training-data \
+                --output-dir ml/models/risk \
+                --model-name risk_model \
+                --n-estimators 200 \
+                --learning-rate 0.05 \
+                --max-depth 6 \
+                --calibrate isotonic
+            displayName: 'Train risk model'
+          
+          - script: |
+              python ml/training/evaluate_model.py \
+                --model-dir ml/models/risk \
+                --data-dir $(Pipeline.Workspace)/training-data \
+                --output evaluation_report.json
+            displayName: 'Evaluate risk model'
+          
+          - publish: ml/models/risk
+            artifact: risk-model
+            displayName: 'Publish risk model'
+          
+          - publish: evaluation_report.json
+            artifact: risk-evaluation
+            displayName: 'Publish evaluation report'
+
+  - stage: RegisterModels
+    displayName: Register Models in Azure ML
+    dependsOn: [TrainConfidenceModel, TrainRiskModel]
+    condition: succeeded()
+    jobs:
+      - job: RegisterModels
+        displayName: Register Models
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Login to Azure'
+            inputs:
+              azureSubscription: 'ChangeTrace-Dev'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az account set --subscription $(AZURE_SUBSCRIPTION_ID)
+          
+          - download: current
+            artifact: confidence-model
+            displayName: 'Download confidence model'
+          
+          - download: current
+            artifact: risk-model
+            displayName: 'Download risk model'
+          
+          - script: |
+              # Register confidence model
+              az ml model create \
+                --name confidence_model \
+                --version $(Build.BuildId) \
+                --path $(Pipeline.Workspace)/confidence-model \
+                --type custom_model \
+                --description "Root cause confidence scoring model v$(Build.BuildId)" \
+                --tags model_type=confidence training_date=$(date -u +%Y-%m-%d) build_id=$(Build.BuildId)
+            
+              # Register risk model
+              az ml model create \
+                --name risk_model \
+                --version $(Build.BuildId) \
+                --path $(Pipeline.Workspace)/risk-model \
+                --type custom_model \
+                --description "Deployment risk scoring model v$(Build.BuildId)" \
+                --tags model_type=risk training_date=$(date -u +%Y-%m-%d) build_id=$(Build.BuildId)
+            displayName: 'Register models in Azure ML'
+            env:
+              AZURE_SUBSCRIPTION_ID: $(AZURE_SUBSCRIPTION_ID)
+              AZURE_RESOURCE_GROUP: $(AZURE_RESOURCE_GROUP)
+              AZURE_WORKSPACE_NAME: $(AZURE_ML_WORKSPACE_NAME)
+
+  - stage: PromoteModels
+    displayName: Promote Models (Champion/Challenger)
+    dependsOn: RegisterModels
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: PromoteModels
+        displayName: Promote Champion Models
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Promote Champion Models'
+            inputs:
+              azureSubscription: 'ChangeTrace-Dev'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                # Get current champion versions
+                CONFIDENCE_CHAMPION=$(az ml model list --name confidence_model --query "[?tags.champion=='true'].version" -o tsv)
+                RISK_CHAMPION=$(az ml model list --name risk_model --query "[?tags.champion=='true'].version" -o tsv)
+                
+                # Get new model versions
+                NEW_CONFIDENCE=$(az ml model list --name confidence_model --query "[?version=='$(Build.BuildId)'].version" -o tsv)
+                NEW_RISK=$(az ml model list --name risk_model --query "[?version=='$(Build.BuildId)'].version" -o tsv)
+                
+                # Compare metrics and promote if better
+                # This would compare evaluation metrics from the evaluation reports
+                echo "Current confidence champion: $CONFIDENCE_CHAMPION"
+                echo "New confidence version: $NEW_CONFIDENCE"
+                echo "Current risk champion: $RISK_CHAMPION"
+                echo "New risk version: $NEW_RISK"
+                
+                # For now, auto-promote on main branch
+                if [ -n "$NEW_CONFIDENCE" ]; then
+                  az ml model update --name confidence_model --version $NEW_CONFIDENCE --set tags.champion=true
+                  if [ -n "$CONFIDENCE_CHAMPION" ] && [ "$CONFIDENCE_CHAMPION" != "$NEW_CONFIDENCE" ]; then
+                    az ml model update --name confidence_model --version $CONFIDENCE_CHAMPION --set tags.champion=false
+                  fi
+                fi
+                
+                if [ -n "$NEW_RISK" ]; then
+                  az ml model update --name risk_model --version $NEW_RISK --set tags.champion=true
+                  if [ -n "$RISK_CHAMPION" ] && [ "$RISK_CHAMPION" != "$NEW_RISK" ]; then
+                    az ml model update --name risk_model --version $RISK_CHAMPION --set tags.champion=false
+                  fi
+                fi
+            displayName: 'Promote champion models'
+            env:
+              AZURE_SUBSCRIPTION_ID: $(AZURE_SUBSCRIPTION_ID)
+              AZURE_RESOURCE_GROUP: $(AZURE_RESOURCE_GROUP)
+              AZURE_WORKSPACE_NAME: $(AZURE_ML_WORKSPACE_NAME)

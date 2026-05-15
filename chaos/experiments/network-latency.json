@@ -1,0 +1,97 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "experimentName": {
+      "type": "string",
+      "defaultValue": "changetrace-network-latency"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus"
+    },
+    "targetResourceId": {
+      "type": "string"
+    },
+    "targetServiceLabel": {
+      "type": "string",
+      "defaultValue": "app=payments"
+    },
+    "latencyMs": {
+      "type": "int",
+      "defaultValue": 200
+    },
+    "jitterMs": {
+      "type": "int",
+      "defaultValue": 50
+    },
+    "durationMinutes": {
+      "type": "int",
+      "defaultValue": 5
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Chaos/experiments",
+      "apiVersion": "2023-11-01",
+      "name": "[parameters('experimentName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "steps": [
+          {
+            "name": "inject-network-latency",
+            "branches": [
+              {
+                "name": "network-latency-branch",
+                "actions": [
+                  {
+                    "name": "network-delay",
+                    "type": "continuous",
+                    "parameters": [
+                      {
+                        "key": "faultType",
+                        "value": "NetworkLatency"
+                      },
+                      {
+                        "key": "selector",
+                        "value": "{\"namespaces\":[\"default\"],\"labelSelectors\":{\"app\":\"[parameters('targetServiceLabel')]\"}}"
+                      },
+                      {
+                        "key": "latency",
+                        "value": "[concat(string(parameters('latencyMs')), 'ms')]"
+                      },
+                      {
+                        "key": "jitter",
+                        "value": "[concat(string(parameters('jitterMs')), 'ms')]"
+                      },
+                      {
+                        "key": "duration",
+                        "value": "[concat('PT', string(parameters('durationMinutes')), 'M')]"
+                      }
+                    ],
+                    "duration": "[concat('PT', string(parameters('durationMinutes')), 'M')]"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "targets": [
+          {
+            "type": "Microsoft.Chaos/targets",
+            "id": "[parameters('targetResourceId')]"
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "experimentId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Chaos/experiments', parameters('experimentName'))]"
+    }
+  }
+}

@@ -1,0 +1,472 @@
+# GitHub Actions CI/CD Pipeline for ChangeTrace
+
+name: ChangeTrace CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      skip_tests:
+        description: 'Skip tests'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: changetrace.azurecr.io
+  IMAGE_TAG: ${{ github.sha }}
+  AZURE_RESOURCE_GROUP: changetrace-rg
+  AKS_CLUSTER_NAME: changetrace-aks
+
+jobs:
+  # ============================================================
+  # LINT & TEST
+  # ============================================================
+  lint-and-test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r services/collector/requirements.txt
+          pip install -r services/correlation-engine/requirements.txt
+          pip install -r services/dashboard-api/requirements.txt
+          pip install -r functions/requirements.txt
+          pip install -r ml/training/requirements.txt
+      
+      - name: Run Python linting
+        run: |
+          pip install ruff mypy
+          ruff check services/ functions/ ml/
+          mypy services/ functions/ ml/ --ignore-missing-imports
+      
+      - name: Run Python tests
+        run: |
+          pip install pytest pytest-asyncio pytest-mock pytest-cov
+          pytest services/collector/tests/ -v --cov=services/collector --cov-report=xml
+          pytest services/correlation-engine/tests/ -v --cov=services/correlation-engine --cov-report=xml
+          pytest services/dashboard-api/tests/ -v --cov=services/dashboard-api --cov-report=xml
+          pytest functions/shared/tests/ -v --cov=functions --cov-report=xml
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  # ============================================================
+  # DASHBOARD BUILD
+  # ============================================================
+  dashboard-build:
+    name: Build Dashboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: ./dashboard
+        run: npm ci
+      
+      - name: Run linting
+        working-directory: ./dashboard
+        run: npm run lint
+      
+      - name: Run tests
+        working-directory: ./dashboard
+        run: npm test -- --watchAll=false --coverage
+      
+      - name: Build production
+        working-directory: ./dashboard
+        run: npm run build
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-build
+          path: dashboard/build/
+          retention-days: 7
+
+  # ============================================================
+  # DOCKER BUILD & PUSH
+  # ============================================================
+  docker-build:
+    name: Build & Push Docker Images
+    needs: [lint-and-test, dashboard-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    
+    strategy:
+      matrix:
+        service:
+          - collector
+          - correlation-engine
+          - dashboard-api
+          - graph-builder
+          - postmortem-generator
+          - risk-engine
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Azure Container Registry
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ env.REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ matrix.service }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/${{ matrix.service }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+  # ============================================================
+  # FUNCTIONS BUILD & DEPLOY
+  # ============================================================
+  functions-build:
+    name: Build & Deploy Functions
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install Azure Functions Core Tools
+        run: |
+          npm install -g azure-functions-core-tools@4 --unsafe-perm true
+      
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      
+      - name: Deploy Functions
+        run: |
+          cd functions
+          func azure functionapp publish changetrace-func --python --build remote
+
+  # ============================================================
+  # TERRAFORM PLAN
+  # ============================================================
+  terraform-plan:
+    name: Terraform Plan
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+      
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=changetrace-tfstate-rg" \
+            -backend-config="storage_account_name=changetracetfstate" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=changetrace.tfstate"
+      
+      - name: Terraform Format Check
+        working-directory: ./terraform
+        run: terraform fmt -check -recursive
+      
+      - name: Terraform Validate
+        working-directory: ./terraform
+        run: terraform validate
+      
+      - name: Terraform Plan
+        id: plan
+        working-directory: ./terraform
+        run: |
+          terraform plan -out=tfplan -var-file=environments/dev/terraform.tfvars
+      
+      - name: Upload Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform/tfplan
+          retention-days: 7
+      
+      - name: Comment PR with Plan
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/tfplan', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '## Terraform Plan\n```\n' + plan + '\n```'
+            })
+
+  # ============================================================
+  # TERRAFORM APPLY (dev)
+  # ============================================================
+  terraform-apply-dev:
+    name: Terraform Apply (dev)
+    needs: [terraform-plan, docker-build, functions-build]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    environment: dev
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+      
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=changetrace-tfstate-rg" \
+            -backend-config="storage_account_name=changetracetfstate" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=changetrace.tfstate"
+      
+      - name: Terraform Apply
+        working-directory: ./terraform
+        run: |
+          terraform apply -auto-approve tfplan
+
+  # ============================================================
+  # AKS DEPLOY
+  # ============================================================
+  aks-deploy:
+    name: Deploy to AKS
+    needs: [terraform-apply-dev, docker-build]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    environment: dev
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      
+      - name: Set AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
+      
+      - name: Deploy to AKS
+        run: |
+          # Apply Kubernetes manifests
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/configmaps/
+          kubectl apply -f k8s/secrets/
+          kubectl apply -f k8s/deployments/
+          kubectl apply -f k8s/services/
+          kubectl apply -f k8s/ingress/
+      
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/collector -n changetrace --timeout=300s
+          kubectl rollout status deployment/correlation-engine -n changetrace --timeout=300s
+          kubectl rollout status deployment/dashboard-api -n changetrace --timeout=300s
+          kubectl rollout status deployment/graph-builder -n changetrace --timeout=300s
+          kubectl rollout status deployment/risk-engine -n changetrace --timeout=300s
+          kubectl rollout status deployment/postmortem-generator -n changetrace --timeout=300s
+
+  # ============================================================
+  # CHAOS VALIDATION
+  # ============================================================
+  chaos-validation:
+    name: Chaos Validation
+    needs: aks-deploy
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    environment: dev
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      
+      - name: Run Chaos Experiments
+        run: |
+          # Start AKS if stopped
+          az aks start --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }}
+          
+          # Wait for cluster to be ready
+          sleep 60
+          
+          # Run each chaos experiment
+          for experiment in pod-failure network-latency cpu-pressure memory-pressure dns-failure disk-io-pressure; do
+            echo "Running experiment: $experiment"
+            az chaos experiment start \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --name "changetrace-$experiment" \
+              --no-wait
+            
+            # Wait for experiment to complete
+            sleep 120
+            
+            # Collect results
+            az chaos experiment show \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --name "changetrace-$experiment" \
+              --query "status" -o tsv
+          done
+      
+      - name: Evaluate Results
+        run: |
+          python chaos/scripts/evaluate_precision_recall.py --results-dir chaos/results --output evaluation_report.txt
+      
+      - name: Upload Evaluation Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-evaluation-report
+          path: evaluation_report.txt
+          retention-days: 30
+      
+      - name: Stop AKS
+        if: always()
+        run: |
+          az aks stop --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }}
+
+  # ============================================================
+  # NOTIFICATIONS
+  # ============================================================
+  notify:
+    name: Notify
+    needs: [lint-and-test, docker-build, functions-build, terraform-apply-dev, aks-deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      - name: Send notification
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: |
+          STATUS="${{ needs.lint-and-test.result }},${{ needs.docker-build.result }},${{ needs.functions-build.result }},${{ needs.terraform-apply-dev.result }},${{ needs.aks-deploy.result }}"
+          echo "Pipeline status: $STATUS"
+          
+          # Send to Teams/Slack webhook
+          curl -X POST ${{ secrets.NOTIFICATION_WEBHOOK }} \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\": \"ChangeTrace pipeline completed with status: $STATUS\"}"

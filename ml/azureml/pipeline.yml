@@ -1,0 +1,208 @@
+# Azure ML Pipeline Configuration for ChangeTrace
+
+$schema: https://azuremlschemas.azureedge.net/latest/pipelineJob.schema.json
+type: pipeline
+
+display_name: changetrace-training-pipeline
+description: Training pipeline for confidence and risk models
+experiment_name: changetrace-training
+
+settings:
+  default_compute: cpu-cluster
+  default_datastore: workspaceblobstore
+  force_rerun: false
+
+inputs:
+  training_data_path:
+    type: uri_folder
+    path: azureml://datastores/workspaceblobstore/paths/training-data/
+  model_output_path:
+    type: uri_folder
+    path: azureml://datastores/workspaceblobstore/paths/models/
+  model_type:
+    type: string
+    default: confidence  # confidence or risk
+
+jobs:
+  # Data preparation
+  prepare_data:
+    type: command
+    component: ./components/prepare_data.yml
+    inputs:
+      raw_data_path: ${{parent.inputs.training_data_path}}
+      model_type: ${{parent.inputs.model_type}}
+    outputs:
+      processed_data:
+        type: uri_folder
+    compute: cpu-cluster
+
+  # Train confidence model
+  train_confidence_model:
+    type: command
+    component: ./components/train_confidence_model.yml
+    inputs:
+      training_data: ${{jobs.prepare_data.outputs.processed_data}}
+      model_output_path: ${{parent.inputs.model_output_path}}
+      n_estimators: 200
+      learning_rate: 0.05
+      max_depth: 6
+      calibrate: true
+    outputs:
+      model:
+        type: mlflow_model
+    compute: cpu-cluster
+    condition: ${{eq(parent.inputs.model_type, 'confidence')}}
+
+  # Train risk model
+  train_risk_model:
+    type: command
+    component: ./components/train_risk_model.yml
+    inputs:
+      training_data: ${{jobs.prepare_data.outputs.processed_data}}
+      model_output_path: ${{parent.inputs.model_output_path}}
+      n_estimators: 200
+      learning_rate: 0.05
+      max_depth: 6
+      calibrate: true
+    outputs:
+      model:
+        type: mlflow_model
+    compute: cpu-cluster
+    condition: ${{eq(parent.inputs.model_type, 'risk')}}
+
+  # Evaluate model
+  evaluate_model:
+    type: command
+    component: ./components/evaluate_model.yml
+    inputs:
+      model: ${{jobs.train_confidence_model.outputs.model}}
+      test_data: ${{jobs.prepare_data.outputs.processed_data}}
+      model_type: ${{parent.inputs.model_type}}
+    outputs:
+      metrics:
+        type: uri_file
+    compute: cpu-cluster
+
+  # Register model
+  register_model:
+    type: command
+    component: ./components/register_model.yml
+    inputs:
+      model: ${{jobs.train_confidence_model.outputs.model}}
+      model_name: changetrace-${{parent.inputs.model_type}}-model
+      model_type: ${{parent.inputs.model_type}}
+      metrics: ${{jobs.evaluate_model.outputs.metrics}}
+    compute: cpu-cluster
+
+# Component definitions (inline for reference)
+# components/prepare_data.yml:
+#   $schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+#   name: prepare_data
+#   version: 1
+#   display_name: Prepare Training Data
+#   inputs:
+#     raw_data_path:
+#       type: uri_folder
+#     model_type:
+#       type: string
+#   outputs:
+#     processed_data:
+#       type: uri_folder
+#   code: ../ml/training
+#   command: python prepare_data.py --raw_data_path ${{inputs.raw_data_path}} --model_type ${{inputs.model_type}} --output_path ${{outputs.processed_data}}
+#   environment: azureml:changetrace-training-env:1
+
+# components/train_confidence_model.yml:
+#   $schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+#   name: train_confidence_model
+#   version: 1
+#   display_name: Train Confidence Model
+#   inputs:
+#     training_data:
+#       type: uri_folder
+#     model_output_path:
+#       type: uri_folder
+#     n_estimators:
+#       type: integer
+#       default: 200
+#     learning_rate:
+#       type: number
+#       default: 0.05
+#     max_depth:
+#       type: integer
+#       default: 6
+#     calibrate:
+#       type: boolean
+#       default: true
+#   outputs:
+#     model:
+#       type: mlflow_model
+#   code: ../ml/training
+#   command: python train_confidence_model.py --training_data ${{inputs.training_data}} --model_output_path ${{inputs.model_output_path}} --n_estimators ${{inputs.n_estimators}} --learning_rate ${{inputs.learning_rate}} --max_depth ${{inputs.max_depth}} --calibrate ${{inputs.calibrate}}
+#   environment: azureml:changetrace-training-env:1
+
+# components/train_risk_model.yml:
+#   $schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+#   name: train_risk_model
+#   version: 1
+#   display_name: Train Risk Model
+#   inputs:
+#     training_data:
+#       type: uri_folder
+#     model_output_path:
+#       type: uri_folder
+#     n_estimators:
+#       type: integer
+#       default: 200
+#     learning_rate:
+#       type: number
+#       default: 0.05
+#     max_depth:
+#       type: integer
+#       default: 6
+#     calibrate:
+#       type: boolean
+#       default: true
+#   outputs:
+#     model:
+#       type: mlflow_model
+#   code: ../ml/training
+#   command: python train_risk_model.py --training_data ${{inputs.training_data}} --model_output_path ${{inputs.model_output_path}} --n_estimators ${{inputs.n_estimators}} --learning_rate ${{inputs.learning_rate}} --max_depth ${{inputs.max_depth}} --calibrate ${{inputs.calibrate}}
+#   environment: azureml:changetrace-training-env:1
+
+# components/evaluate_model.yml:
+#   $schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+#   name: evaluate_model
+#   version: 1
+#   display_name: Evaluate Model
+#   inputs:
+#     model:
+#       type: mlflow_model
+#     test_data:
+#       type: uri_folder
+#     model_type:
+#       type: string
+#   outputs:
+#     metrics:
+#       type: uri_file
+#   code: ../ml/training
+#   command: python evaluate.py --model_path ${{inputs.model}} --test_data ${{inputs.test_data}} --model_type ${{inputs.model_type}} --output_path ${{outputs.metrics}}
+#   environment: azureml:changetrace-training-env:1
+
+# components/register_model.yml:
+#   $schema: https://azuremlschemas.azureedge.net/latest/commandComponent.schema.json
+#   name: register_model
+#   version: 1
+#   display_name: Register Model
+#   inputs:
+#     model:
+#       type: mlflow_model
+#     model_name:
+#       type: string
+#     model_type:
+#       type: string
+#     metrics:
+#       type: uri_file
+#   code: ../ml/training
+#   command: python register_model.py --model_path ${{inputs.model}} --model_name ${{inputs.model_name}} --model_type ${{inputs.model_type}} --metrics_path ${{inputs.metrics}}
+#   environment: azureml:changetrace-training-env:1

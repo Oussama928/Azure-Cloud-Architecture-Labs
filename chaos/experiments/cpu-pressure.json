@@ -1,0 +1,97 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "experimentName": {
+      "type": "string",
+      "defaultValue": "changetrace-cpu-pressure"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus"
+    },
+    "targetResourceId": {
+      "type": "string"
+    },
+    "targetServiceLabel": {
+      "type": "string",
+      "defaultValue": "app=payments"
+    },
+    "cpuCount": {
+      "type": "int",
+      "defaultValue": 1
+    },
+    "loadPercent": {
+      "type": "int",
+      "defaultValue": 80
+    },
+    "durationMinutes": {
+      "type": "int",
+      "defaultValue": 5
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Chaos/experiments",
+      "apiVersion": "2023-11-01",
+      "name": "[parameters('experimentName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "steps": [
+          {
+            "name": "inject-cpu-pressure",
+            "branches": [
+              {
+                "name": "cpu-pressure-branch",
+                "actions": [
+                  {
+                    "name": "cpu-stress",
+                    "type": "continuous",
+                    "parameters": [
+                      {
+                        "key": "faultType",
+                        "value": "CPUPressure"
+                      },
+                      {
+                        "key": "selector",
+                        "value": "{\"namespaces\":[\"default\"],\"labelSelectors\":{\"app\":\"[parameters('targetServiceLabel')]\"}}"
+                      },
+                      {
+                        "key": "cpuCount",
+                        "value": "[string(parameters('cpuCount'))]"
+                      },
+                      {
+                        "key": "load",
+                        "value": "[string(parameters('loadPercent'))]"
+                      },
+                      {
+                        "key": "duration",
+                        "value": "[concat('PT', string(parameters('durationMinutes')), 'M')]"
+                      }
+                    ],
+                    "duration": "[concat('PT', string(parameters('durationMinutes')), 'M')]"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "targets": [
+          {
+            "type": "Microsoft.Chaos/targets",
+            "id": "[parameters('targetResourceId')]"
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "experimentId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Chaos/experiments', parameters('experimentName'))]"
+    }
+  }
+}

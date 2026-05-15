@@ -1,0 +1,37 @@
+# Collector Service Requirements
+# Core dependencies
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+httpx==0.26.0
+python-dotenv==1.0.0
+structlog==24.1.0
+prometheus-client==0.19.0
+
+# Azure SDKs
+azure-identity==1.13.0
+azure-keyvault-secrets==4.7.0
+azure-cosmos==4.5.1
+azure-eventgrid==4.10.0
+azure-mgmt-resource==23.1.0
+azure-mgmt-authorization==4.0.0
+azure-mgmt-resourcegraph==1.1.0
+azure-graphrbac==0.61.1
+
+# GitHub API
+PyGithub==2.1.1
+
+# Kubernetes
+kubernetes==29.0.0
+
+# Graph database
+gremlinpython==3.7.0
+
+# HTTP client for Gremlin
+aiohttp==3.9.5
+async-timeout==4.0.3
+
+# Utilities
+tenacity==8.2.3
+python-json-logger==2.0.7

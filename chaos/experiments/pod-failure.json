@@ -1,0 +1,77 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "experimentName": {
+      "type": "string",
+      "defaultValue": "changetrace-pod-failure"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus"
+    },
+    "targetResourceId": {
+      "type": "string"
+    },
+    "targetServiceLabel": {
+      "type": "string",
+      "defaultValue": "app=payments"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Chaos/experiments",
+      "apiVersion": "2023-11-01",
+      "name": "[parameters('experimentName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "steps": [
+          {
+            "name": "inject-pod-failure",
+            "branches": [
+              {
+                "name": "pod-failure-branch",
+                "actions": [
+                  {
+                    "name": "kill-pod",
+                    "type": "continuous",
+                    "parameters": [
+                      {
+                        "key": "faultType",
+                        "value": "PodKill"
+                      },
+                      {
+                        "key": "selector",
+                        "value": "{\"namespaces\":[\"default\"],\"labelSelectors\":{\"app\":\"[parameters('targetServiceLabel')]\"}}"
+                      },
+                      {
+                        "key": "duration",
+                        "value": "PT1M"
+                      }
+                    ],
+                    "duration": "PT1M"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "targets": [
+          {
+            "type": "Microsoft.Chaos/targets",
+            "id": "[parameters('targetResourceId')]"
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "experimentId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Chaos/experiments', parameters('experimentName'))]"
+    }
+  }
+}

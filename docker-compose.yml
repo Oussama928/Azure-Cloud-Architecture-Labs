@@ -1,0 +1,32 @@
+services:
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: ./services/dashboard_api/Dockerfile
+    ports: ["8002:8002"]
+    environment:
+      - COSMOS_CONNECTION_STRING=AccountEndpoint=https://changetrace-i5fv8b-cosmos.documents.azure.com:443/;AccountKey=REDACTED_COSMOSDB_KEY;ApiKind=Gremlin;
+      - APPINSIGHTS_INSTRUMENTATIONKEY=dev-key
+
+  collector:
+    build:
+      context: .
+      dockerfile: ./services/collector/Dockerfile
+    ports: ["8001:8001"]
+    environment:
+      - EVENTGRID_CICD_ENDPOINT=https://changetrace-i5fv8b-cicd-events.swedencentral-1.eventgrid.azure.net/api/events
+      - EVENTGRID_GIT_ENDPOINT=https://changetrace-i5fv8b-git-events.swedencentral-1.eventgrid.azure.net/api/events
+      - COSMOS_CONNECTION_STRING=AccountEndpoint=https://changetrace-i5fv8b-cosmos.documents.azure.com:443/;AccountKey=REDACTED_COSMOSDB_KEY;ApiKind=Gremlin;
+
+  correlation-engine:
+    build:
+      context: .
+      dockerfile: ./services/correlation_engine/Dockerfile
+    ports: ["8003:8003"]
+    environment:
+      - COSMOS_CONNECTION_STRING=AccountEndpoint=https://changetrace-i5fv8b-cosmos.documents.azure.com:443/;AccountKey=REDACTED_COSMOSDB_KEY;ApiKind=Gremlin;
+
+  dashboard:
+    build: ./dashboard
+    ports: ["3000:3000"]
+    depends_on: [dashboard-api]
