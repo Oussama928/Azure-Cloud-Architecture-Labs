@@ -39,28 +39,28 @@ stages:
       
       - template: templates/build-service.yml
         parameters:
-          serviceName: correlation-engine
-          servicePath: services/correlation-engine
+          serviceName: correlation_engine
+          servicePath: services/correlation_engine
       
       - template: templates/build-service.yml
         parameters:
-          serviceName: dashboard-api
-          servicePath: services/dashboard-api
+          serviceName: dashboard_api
+          servicePath: services/dashboard_api
       
       - template: templates/build-service.yml
         parameters:
-          serviceName: graph-builder
-          servicePath: services/graph-builder
+          serviceName: graph_builder
+          servicePath: services/graph_builder
       
       - template: templates/build-service.yml
         parameters:
-          serviceName: postmortem-generator
-          servicePath: services/postmortem-generator
+          serviceName: postmortem_generator
+          servicePath: services/postmortem_generator
       
       - template: templates/build-service.yml
         parameters:
-          serviceName: risk-engine
-          servicePath: services/risk-engine
+          serviceName: risk_engine
+          servicePath: services/risk_engine
 
   - stage: BuildFunctions
     displayName: Build Azure Functions
