@@ -11,8 +11,9 @@ Queries Azure Resource Graph for recent changes and converts to ChangeEvents.
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any
 
 from azure.identity import DefaultAzureCredential
 from azure.mgmt.resourcegraph import ResourceGraphClient
@@ -20,11 +21,11 @@ from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
 from pydantic import BaseModel, Field
 
 from ..models.change_event import (
+    AzureResourceChangeDetail,
     ChangeEvent,
-    ChangeType,
     ChangeSource,
     ChangeStatus,
-    AzureResourceChangeDetail,
+    ChangeType,
     ResourceReference,
 )
 
@@ -34,56 +35,56 @@ logger = logging.getLogger(__name__)
 class AzureResourceGraphConfig(BaseModel):
     """Configuration for Azure Resource Graph source"""
     # Authentication
-    subscription_ids: List[str] = Field(default_factory=list)  # Empty = all accessible
-    tenant_id: Optional[str] = None
-    
+    subscription_ids: list[str] = Field(default_factory=list)  # Empty = all accessible
+    tenant_id: str | None = None
+
     # Query configuration
     lookback_hours: int = 24
     poll_interval_seconds: int = 300  # 5 minutes
-    
+
     # Resource filters
-    resource_types: List[str] = Field(default_factory=list)  # Empty = all
-    resource_groups: List[str] = Field(default_factory=list)  # Empty = all
-    locations: List[str] = Field(default_factory=list)  # Empty = all
-    
+    resource_types: list[str] = Field(default_factory=list)  # Empty = all
+    resource_groups: list[str] = Field(default_factory=list)  # Empty = all
+    locations: list[str] = Field(default_factory=list)  # Empty = all
+
     # Change types to track
     track_creates: bool = True
     track_updates: bool = True
     track_deletes: bool = True
     track_policy_changes: bool = True
     track_tag_changes: bool = True
-    
+
     # Tag filters
-    required_tags: Dict[str, str] = Field(default_factory=dict)
-    excluded_tags: Dict[str, str] = Field(default_factory=dict)
+    required_tags: dict[str, str] = Field(default_factory=dict)
+    excluded_tags: dict[str, str] = Field(default_factory=dict)
 
 
 class AzureResourceGraphSource:
     """
     Azure Resource Graph change event collector.
-    
+
     Queries Resource Graph for resource changes and converts to ChangeEvents.
     Uses Azure Activity Log / Resource Graph change tracking.
     """
-    
+
     def __init__(self, config: AzureResourceGraphConfig):
         self.config = config
-        self._client: Optional[ResourceGraphClient] = None
+        self._client: ResourceGraphClient | None = None
         self._credential = DefaultAzureCredential()
-        self._last_query_time: Optional[datetime] = None
-    
+        self._last_query_time: datetime | None = None
+
     async def initialize(self) -> None:
         """Initialize Resource Graph client"""
         self._client = ResourceGraphClient(
             credential=self._credential,
         )
         logger.info("Initialized Azure Resource Graph client")
-    
+
     async def close(self) -> None:
         """Close client"""
         if self._client:
             await self._client.close()
-    
+
     def _build_query(self, since: datetime) -> str:
         """Build KQL query for resource changes"""
         # Base query for resource changes
@@ -91,36 +92,36 @@ class AzureResourceGraphSource:
             "resources",
             f"| where timestamp >= datetime({since.isoformat()}Z)",
         ]
-        
+
         # Filter by subscription
         if self.config.subscription_ids:
             sub_filter = " or ".join([f"subscriptionId == '{sid}'" for sid in self.config.subscription_ids])
             query_parts.append(f"| where {sub_filter}")
-        
+
         # Filter by resource group
         if self.config.resource_groups:
             rg_filter = " or ".join([f"resourceGroup == '{rg}'" for rg in self.config.resource_groups])
             query_parts.append(f"| where {rg_filter}")
-        
+
         # Filter by resource type
         if self.config.resource_types:
             type_filter = " or ".join([f"type == '{rt}'" for rt in self.config.resource_types])
             query_parts.append(f"| where {type_filter}")
-        
+
         # Filter by location
         if self.config.locations:
             loc_filter = " or ".join([f"location == '{loc}'" for loc in self.config.locations])
             query_parts.append(f"| where {loc_filter}")
-        
+
         # Filter by tags
         if self.config.required_tags:
             for key, value in self.config.required_tags.items():
                 query_parts.append(f"| where tags['{key}'] == '{value}'")
-        
+
         if self.config.excluded_tags:
             for key, value in self.config.excluded_tags.items():
                 query_parts.append(f"| where tags['{key}'] != '{value}'")
-        
+
         # Select relevant fields
         query_parts.append("""
         | project
@@ -140,12 +141,12 @@ class AzureResourceGraphSource:
             timestamp,
             changedTime
         """)
-        
+
         # Order by time
         query_parts.append("| order by timestamp desc")
-        
+
         return " ".join(query_parts)
-    
+
     def _build_activity_log_query(self, since: datetime) -> str:
         """Build query for Azure Activity Log (for detailed change tracking)"""
         # This would query the Activity Log for detailed change events
@@ -168,14 +169,14 @@ class AzureResourceGraphSource:
             _ResourceId
         | order by TimeGenerated desc
         """
-    
-    async def query_resources(self, since: datetime) -> List[Dict[str, Any]]:
+
+    async def query_resources(self, since: datetime) -> list[dict[str, Any]]:
         """Query Resource Graph for resources changed since timestamp"""
         if not self._client:
             await self.initialize()
-        
+
         query = self._build_query(since)
-        
+
         request = QueryRequest(
             query=query,
             subscriptions=self.config.subscription_ids if self.config.subscription_ids else None,
@@ -184,27 +185,27 @@ class AzureResourceGraphSource:
                 allow_partial_scopes=True,
             ),
         )
-        
+
         try:
             response = self._client.resources(request)
             return response.data if response.data else []
         except Exception as e:
             logger.error(f"Resource Graph query failed: {e}")
             return []
-    
-    async def query_activity_log(self, since: datetime) -> List[Dict[str, Any]]:
+
+    async def query_activity_log(self, since: datetime) -> list[dict[str, Any]]:
         """Query Activity Log for detailed change events"""
         # This requires Log Analytics workspace with Activity Log
         # For now, will return empty , will implement later
         logger.debug("Activity Log query not yet implemented")
         return []
-    
-    def resource_to_change_event(self, resource: Dict[str, Any]) -> Optional[ChangeEvent]:
+
+    def resource_to_change_event(self, resource: dict[str, Any]) -> ChangeEvent | None:
         """Convert Resource Graph resource to ChangeEvent"""
         # Determine change type from properties
         # Resource Graph doesn't directly tell us the change type
         # We infer from the presence of certain fields or compare with previous state
-        
+
         resource_id = resource.get("id", "")
         resource_type = resource.get("type", "")
         resource_name = resource.get("name", "")
@@ -214,12 +215,12 @@ class AzureResourceGraphSource:
         tags = resource.get("tags", {})
         properties = resource.get("properties", {})
         identity = resource.get("identity", {})
-        sku = resource.get("sku", {})
-        kind = resource.get("kind", "")
-        managed_by = resource.get("managedBy", "")
+        resource.get("sku", {})
+        resource.get("kind", "")
+        resource.get("managedBy", "")
         etag = resource.get("etag", "")
         timestamp_str = resource.get("timestamp") or resource.get("changedTime")
-        
+
         if not timestamp_str:
             timestamp = datetime.utcnow()
         else:
@@ -227,15 +228,15 @@ class AzureResourceGraphSource:
                 timestamp = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
             except:
                 timestamp = datetime.utcnow()
-        
+
         # Infer service name from resource
         service_name = self._infer_service_name(resource)
-        
+
         # Determine environment from tags or resource group
         environment = self._infer_environment(resource)
-        
+
         # Build resource reference
-        resource_ref = ResourceReference(
+        ResourceReference(
             api_version="",  # Would need to look up
             kind=resource_type,
             name=resource_name,
@@ -243,7 +244,7 @@ class AzureResourceGraphSource:
             resource_type=resource_type,
             resource_id=resource_id,
         )
-        
+
         # Build Azure change detail
         azure_change = AzureResourceChangeDetail(
             resource_id=resource_id,
@@ -255,10 +256,10 @@ class AzureResourceGraphSource:
             tags_delta=tags,
             identity_delta=identity,
         )
-        
+
         # Determine change type
         change_type = ChangeType.INFRASTRUCTURE_CHANGE
-        
+
         return ChangeEvent(
             change_type=change_type,
             source=ChangeSource.AZURE_RESOURCE_GRAPH,
@@ -279,8 +280,8 @@ class AzureResourceGraphSource:
             },
             correlation_id=resource_id,
         )
-    
-    def _infer_service_name(self, resource: Dict[str, Any]) -> str:
+
+    def _infer_service_name(self, resource: dict[str, Any]) -> str:
         """Infer service name from resource"""
         # Try tags first
         tags = resource.get("tags", {})
@@ -292,33 +293,33 @@ class AzureResourceGraphSource:
             return tags["application"]
         if "workload" in tags:
             return tags["workload"]
-        
+
         # Try resource name patterns
         name = resource.get("name", "")
         resource_type = resource.get("type", "")
-        
+
         # Common patterns: service-name-xxx, xxx-service-name, etc.
         # Remove common suffixes/prefixes
         for prefix in ["app-", "svc-", "service-", "workload-"]:
             if name.startswith(prefix):
                 name = name[len(prefix):]
-        
+
         for suffix in ["-app", "-svc", "-service", "-workload", "-prod", "-staging", "-dev"]:
             if name.endswith(suffix):
                 name = name[:-len(suffix)]
-        
+
         # Use resource group as fallback
         rg = resource.get("resourceGroup", "")
         if rg and rg not in ["default", "production", "staging", "development"]:
             return rg
-        
+
         # Last resort: resource type
         return resource_type.split("/")[-1].replace(".", "-")
-    
-    def _infer_environment(self, resource: Dict[str, Any]) -> str:
+
+    def _infer_environment(self, resource: dict[str, Any]) -> str:
         """Infer environment from resource tags or resource group"""
         tags = resource.get("tags", {})
-        
+
         # Check common environment tags
         for tag_key in ["environment", "env", "stage", "tier"]:
             if tag_key in tags:
@@ -331,7 +332,7 @@ class AzureResourceGraphSource:
                     return "development"
                 elif value in ["test", "testing"]:
                     return "test"
-        
+
         # Check resource group name
         rg = resource.get("resourceGroup", "").lower()
         if "prod" in rg:
@@ -342,28 +343,28 @@ class AzureResourceGraphSource:
             return "development"
         elif "test" in rg:
             return "test"
-        
+
         return "production"
-    
-    async def poll_changes(self) -> List[ChangeEvent]:
+
+    async def poll_changes(self) -> list[ChangeEvent]:
         """Poll for resource changes since last query"""
         since = self._last_query_time
         if not since:
             since = datetime.utcnow() - timedelta(hours=self.config.lookback_hours)
-        
+
         resources = await self.query_resources(since)
-        
+
         events = []
         for resource in resources:
             event = self.resource_to_change_event(resource)
             if event:
                 events.append(event)
-        
+
         self._last_query_time = datetime.utcnow()
-        
+
         logger.info(f"Polled Azure Resource Graph: found {len(events)} changes since {since}")
         return events
-    
+
     async def start_polling(self) -> AsyncGenerator[ChangeEvent, None]:
         """Start continuous polling for changes"""
         while True:
@@ -373,7 +374,7 @@ class AzureResourceGraphSource:
                     yield event
             except Exception as e:
                 logger.error(f"Error polling Azure Resource Graph: {e}")
-            
+
             await asyncio.sleep(self.config.poll_interval_seconds)
 
 

@@ -5,24 +5,21 @@ Sends notifications via Teams webhook, email, or other channels.
 Supports approval requests with approve/reject buttons.
 """
 
-import hashlib
-import hmac
 import json
 import logging
 import os
-from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from datetime import datetime
+from typing import Any
 
-import azure.functions as func
 import httpx
 
 logger = logging.getLogger(__name__)
 
 
-async def main(activity_input: Dict[str, Any]) -> Dict[str, Any]:
+async def main(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Send notification for approval request or escalation.
-    
+
     Input:
     {
         "workflow_id": "wf-123",
@@ -35,7 +32,7 @@ async def main(activity_input: Dict[str, Any]) -> Dict[str, Any]:
         "token": "secure-token",
         "notification_type": "approval_request" | "escalation"
     }
-    
+
     Output:
     {
         "sent": true,
@@ -46,30 +43,30 @@ async def main(activity_input: Dict[str, Any]) -> Dict[str, Any]:
     """
     workflow_id = activity_input.get("workflow_id")
     notification_type = activity_input.get("notification_type", "approval_request")
-    
+
     logger.info(f"Sending {notification_type} notification for workflow {workflow_id}")
-    
+
     # Generate signed approval URLs
     token = activity_input.get("token")
     callback_base = activity_input.get("callback_url")
     expires_at = activity_input.get("expires_at")
-    
+
     if not token or not callback_base:
         raise ValueError("token and callback_url are required")
-    
+
     approve_url = f"{callback_base}?token={token}&decision=approve"
     reject_url = f"{callback_base}?token={token}&decision=reject"
-    
+
     # Send to Teams
     teams_sent = await _send_teams_notification(
         activity_input, approve_url, reject_url, expires_at
     )
-    
+
     # Send email (placeholder)
     email_sent = await _send_email_notification(
         activity_input, approve_url, reject_url, expires_at
     )
-    
+
     return {
         "sent": teams_sent or email_sent,
         "channels": ["teams"] if teams_sent else [] + (["email"] if email_sent else []),
@@ -80,25 +77,25 @@ async def main(activity_input: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _send_teams_notification(
-    activity_input: Dict[str, Any],
+    activity_input: dict[str, Any],
     approve_url: str,
     reject_url: str,
-    expires_at: Optional[str]
+    expires_at: str | None
 ) -> bool:
     """Send Teams adaptive card notification."""
-    
+
     webhook_url = os.getenv("TEAMS_WEBHOOK_URL")
     if not webhook_url:
         logger.warning("TEAMS_WEBHOOK_URL not configured, skipping Teams notification")
         return False
-    
+
     notification_type = activity_input.get("notification_type", "approval_request")
-    
+
     if notification_type == "approval_request":
         card = _build_approval_card(activity_input, approve_url, reject_url, expires_at)
     else:
         card = _build_escalation_card(activity_input, expires_at)
-    
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(webhook_url, json=card)
@@ -111,37 +108,37 @@ async def _send_teams_notification(
 
 
 async def _send_email_notification(
-    activity_input: Dict[str, Any],
+    activity_input: dict[str, Any],
     approve_url: str,
     reject_url: str,
-    expires_at: Optional[str]
+    expires_at: str | None
 ) -> bool:
     """Send email notification (placeholder - integrate with SendGrid, etc.)."""
-    
+
     # TODO: Implement actual email sending via SendGrid, Azure Communication Services, etc.
     logger.info("Email notification would be sent here (not implemented)")
     return False
 
 
 def _build_approval_card(
-    activity_input: Dict[str, Any],
+    activity_input: dict[str, Any],
     approve_url: str,
     reject_url: str,
-    expires_at: Optional[str]
-) -> Dict[str, Any]:
+    expires_at: str | None
+) -> dict[str, Any]:
     """Build Teams adaptive card for approval request."""
-    
+
     title = activity_input.get("title", "Approval Required")
     description = activity_input.get("description", "")
     details = activity_input.get("details", {})
-    
+
     # Extract key details
     top_candidate = details.get("top_candidate", {})
     confidence = details.get("confidence", 0)
     blast_radius = details.get("blast_radius", {})
     recommended_action = details.get("recommended_action", "rollback_deployment")
     remediation_params = details.get("remediation_params", {})
-    
+
     facts = [
         {"title": "Incident ID", "value": activity_input.get("incident_id", "N/A")},
         {"title": "Affected Service", "value": details.get("affected_service", "N/A")},
@@ -150,11 +147,11 @@ def _build_approval_card(
         {"title": "Recommended Action", "value": recommended_action.replace("_", " ").title()},
         {"title": "Blast Radius", "value": f"{blast_radius.get('total_services_affected', 0)} services"},
     ]
-    
+
     if expires_at:
         expires_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
         facts.append({"title": "Expires", "value": expires_dt.strftime("%Y-%m-%d %H:%M UTC")})
-    
+
     return {
         "type": "message",
         "attachments": [
@@ -223,11 +220,11 @@ def _build_approval_card(
 
 
 def _build_escalation_card(
-    activity_input: Dict[str, Any],
-    expires_at: Optional[str]
-) -> Dict[str, Any]:
+    activity_input: dict[str, Any],
+    expires_at: str | None
+) -> dict[str, Any]:
     """Build Teams adaptive card for escalation."""
-    
+
     return {
         "type": "message",
         "attachments": [

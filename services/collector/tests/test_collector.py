@@ -2,28 +2,29 @@
 Tests for Collector Service - Change Event Models
 """
 
-import pytest
 from datetime import datetime
+
+import pytest
 from pydantic import ValidationError
 
 from services.collector.src.models.change_event import (
-    ChangeEvent,
-    ChangeType,
-    ChangeSource,
-    ChangeStatus,
-    GitReference,
-    TerraformReference,
-    KubernetesChangeDetail,
     AzureResourceChangeDetail,
-    ResourceReference,
+    ChangeEvent,
     ChangeEventBatch,
     ChangeEventFilter,
+    ChangeSource,
+    ChangeStatus,
+    ChangeType,
+    GitReference,
+    KubernetesChangeDetail,
+    ResourceReference,
+    TerraformReference,
 )
 
 
 class TestChangeEventModels:
     """Test change event model validation and serialization"""
-    
+
     def test_change_event_creation_minimal(self):
         """Test creating a minimal valid change event"""
         event = ChangeEvent(
@@ -31,7 +32,7 @@ class TestChangeEventModels:
             source=ChangeSource.GITHUB,
             service_name="payment-service",
         )
-        
+
         assert event.change_type == ChangeType.CODE_DEPLOYMENT
         assert event.source == ChangeSource.GITHUB
         assert event.service_name == "payment-service"
@@ -39,7 +40,7 @@ class TestChangeEventModels:
         assert event.id is not None
         assert event.event_id is not None
         assert event.timestamp is not None
-    
+
     def test_change_event_service_name_validation(self):
         """Test service name validation"""
         # Valid service name
@@ -49,7 +50,7 @@ class TestChangeEventModels:
             service_name="  payment-service  ",
         )
         assert event.service_name == "payment-service"
-        
+
         # Invalid: empty service name
         with pytest.raises(ValidationError):
             ChangeEvent(
@@ -57,11 +58,11 @@ class TestChangeEventModels:
                 source=ChangeSource.GITHUB,
                 service_name="",
             )
-    
+
     def test_change_event_environment_validation(self):
         """Test environment validation"""
         valid_envs = ["production", "prod", "staging", "stage", "development", "dev", "test"]
-        
+
         for env in valid_envs:
             event = ChangeEvent(
                 change_type=ChangeType.CODE_DEPLOYMENT,
@@ -70,7 +71,7 @@ class TestChangeEventModels:
                 environment=env,
             )
             assert event.environment == env.lower()
-        
+
         # Invalid environment
         with pytest.raises(ValidationError):
             ChangeEvent(
@@ -79,7 +80,7 @@ class TestChangeEventModels:
                 service_name="test-service",
                 environment="invalid-env",
             )
-    
+
     def test_change_event_with_git_reference(self):
         """Test change event with Git reference"""
         git_ref = GitReference(
@@ -91,18 +92,18 @@ class TestChangeEventModels:
             author="John Doe",
             author_email="john@example.com",
         )
-        
+
         event = ChangeEvent(
             change_type=ChangeType.CODE_DEPLOYMENT,
             source=ChangeSource.GITHUB,
             service_name="payment-service",
             git=git_ref,
         )
-        
+
         assert event.git is not None
         assert event.git.commit_sha == "abc123"
         assert event.get_git_commit_sha() == "abc123"
-    
+
     def test_change_event_with_terraform_reference(self):
         """Test change event with Terraform reference"""
         tf_ref = TerraformReference(
@@ -113,18 +114,18 @@ class TestChangeEventModels:
             organization="my-org",
             module_addresses=["module.network", "module.compute"],
         )
-        
+
         event = ChangeEvent(
             change_type=ChangeType.INFRASTRUCTURE_CHANGE,
             source=ChangeSource.TERRAFORM,
             service_name="network",
             terraform=tf_ref,
         )
-        
+
         assert event.terraform is not None
         assert event.terraform.workspace == "production"
         assert event.get_terraform_run_id() == "run-789"
-    
+
     def test_change_event_with_kubernetes_changes(self):
         """Test change event with Kubernetes changes"""
         k8s_change = KubernetesChangeDetail(
@@ -137,18 +138,18 @@ class TestChangeEventModels:
             operation="UPDATE",
             diff={"replicas": {"before": 3, "after": 5}},
         )
-        
+
         event = ChangeEvent(
             change_type=ChangeType.CONFIG_CHANGE,
             source=ChangeSource.KUBERNETES,
             service_name="payment-service",
             kubernetes_changes=[k8s_change],
         )
-        
+
         assert len(event.kubernetes_changes) == 1
         assert event.kubernetes_changes[0].resource.kind == "Deployment"
         assert "Deployment/payment-service" in event.get_kubernetes_resources()
-    
+
     def test_change_event_with_azure_changes(self):
         """Test change event with Azure resource changes"""
         azure_change = AzureResourceChangeDetail(
@@ -159,18 +160,18 @@ class TestChangeEventModels:
             operation="UPDATE",
             properties_delta={"vmSize": {"before": "Standard_D2s_v3", "after": "Standard_D4s_v3"}},
         )
-        
+
         event = ChangeEvent(
             change_type=ChangeType.INFRASTRUCTURE_CHANGE,
             source=ChangeSource.AZURE_RESOURCE_GRAPH,
             service_name="compute",
             azure_resource_changes=[azure_change],
         )
-        
+
         assert len(event.azure_resource_changes) == 1
         assert event.azure_resource_changes[0].resource_type == "Microsoft.Compute/virtualMachines"
         assert event.get_azure_resource_ids()[0] == azure_change.resource_id
-    
+
     def test_change_event_to_gremlin_vertex(self):
         """Test conversion to Gremlin vertex properties"""
         event = ChangeEvent(
@@ -187,9 +188,9 @@ class TestChangeEventModels:
                 branch="main",
             ),
         )
-        
+
         vertex = event.to_gremlin_vertex()
-        
+
         assert vertex["id"] == event.id
         assert vertex["eventId"] == event.event_id
         assert vertex["changeType"] == "code_deployment"
@@ -198,7 +199,7 @@ class TestChangeEventModels:
         assert vertex["environment"] == "production"
         assert vertex["author"] == "John Doe"
         assert vertex["git"] is not None
-    
+
     def test_change_event_batch(self):
         """Test change event batch"""
         events = [
@@ -209,17 +210,17 @@ class TestChangeEventModels:
             )
             for i in range(3)
         ]
-        
+
         batch = ChangeEventBatch(
             events=events,
             source=ChangeSource.GITHUB,
         )
-        
+
         assert len(batch) == 3
         assert batch.source == ChangeSource.GITHUB
         assert batch.batch_id is not None
         assert batch.received_at is not None
-    
+
     def test_change_event_filter(self):
         """Test change event filter"""
         filter_obj = ChangeEventFilter(
@@ -232,7 +233,7 @@ class TestChangeEventModels:
             limit=50,
             offset=0,
         )
-        
+
         assert filter_obj.service_name == "payment-service"
         assert filter_obj.limit == 50
         assert filter_obj.offset == 0
@@ -240,7 +241,7 @@ class TestChangeEventModels:
 
 class TestResourceReference:
     """Test resource reference model"""
-    
+
     def test_kubernetes_resource_reference(self):
         """Test Kubernetes resource reference"""
         ref = ResourceReference(
@@ -252,12 +253,12 @@ class TestResourceReference:
             labels={"app": "payment-service", "version": "v1.2.3"},
             annotations={"deployment.kubernetes.io/revision": "5"},
         )
-        
+
         assert ref.api_version == "apps/v1"
         assert ref.kind == "Deployment"
         assert ref.namespace == "production"
         assert ref.name == "payment-service"
-    
+
     def test_azure_resource_reference(self):
         """Test Azure resource reference"""
         ref = ResourceReference(
@@ -266,7 +267,7 @@ class TestResourceReference:
             resource_group="rg",
             name="app1",
         )
-        
+
         assert ref.resource_id == "/subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Web/sites/app1"
         assert ref.resource_type == "Microsoft.Web/sites"
         assert ref.resource_group == "rg"
@@ -274,7 +275,7 @@ class TestResourceReference:
 
 class TestGitReference:
     """Test Git reference model"""
-    
+
     def test_git_reference_commit(self):
         """Test Git reference for commit"""
         ref = GitReference(
@@ -287,11 +288,11 @@ class TestGitReference:
             author_email="jane@example.com",
             commit_url="https://github.com/org/repo/commit/abc123def456",
         )
-        
+
         assert ref.commit_sha == "abc123def456"
         assert ref.branch == "main"
         assert ref.tag is None
-    
+
     def test_git_reference_tag(self):
         """Test Git reference for tag/release"""
         ref = GitReference(
@@ -301,14 +302,14 @@ class TestGitReference:
             commit_sha="abc123",
             author="Release Bot",
         )
-        
+
         assert ref.tag == "v1.2.3"
         assert ref.commit_sha == "abc123"
 
 
 class TestTerraformReference:
     """Test Terraform reference model"""
-    
+
     def test_terraform_reference(self):
         """Test Terraform reference"""
         ref = TerraformReference(
@@ -322,7 +323,7 @@ class TestTerraformReference:
                 {"address": "azurerm_resource_group.rg", "type": "azurerm_resource_group", "change": {"actions": ["create"]}},
             ],
         )
-        
+
         assert ref.workspace == "production"
         assert ref.organization == "my-org"
         assert len(ref.module_addresses) == 2

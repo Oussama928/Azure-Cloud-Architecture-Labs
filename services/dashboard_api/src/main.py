@@ -10,17 +10,15 @@ Provides REST API for the dashboard UI:
 """
 
 import asyncio
-import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
-
-from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel
-import uvicorn
 
 # Configure structured logging
 import structlog
+import uvicorn
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel
+
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,
@@ -50,10 +48,10 @@ class DashboardConfig(BaseModel):
     dependency_graph_name: str = "dependency-graph"
     change_history_name: str = "change-history"
     incidents_name: str = "incidents"
-    
+
     # Azure Monitor
-    log_analytics_workspace_id: Optional[str] = None
-    
+    log_analytics_workspace_id: str | None = None
+
     # Service
     host: str = "0.0.0.0"
     port: int = 8002
@@ -61,7 +59,7 @@ class DashboardConfig(BaseModel):
 
 
 # Global state
-config: Optional[DashboardConfig] = None
+config: DashboardConfig | None = None
 gremlin_client = None
 
 
@@ -69,28 +67,28 @@ gremlin_client = None
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     global config, gremlin_client
-    
+
     # Load config
     from pydantic_settings import BaseSettings
-    
+
     class Settings(BaseSettings):
         cosmos_connection_string: str
         cosmos_database: str = "changetrace-graph"
         dependency_graph_name: str = "dependency-graph"
         change_history_name: str = "change-history"
         incidents_name: str = "incidents"
-        log_analytics_workspace_id: Optional[str] = None
+        log_analytics_workspace_id: str | None = None
         host: str = "0.0.0.0"
         port: int = 8002
         log_level: str = "info"
-        
+
         class Config:
             env_file = ".env"
             env_file_encoding = "utf-8"
-    
+
     settings = Settings()
     config = DashboardConfig(**settings.model_dump())
-    
+
     # Initialize Gremlin client
     import urllib.parse
     parsed = urllib.parse.urlparse(config.cosmos_connection_string)
@@ -101,7 +99,7 @@ async def lifespan(app: FastAPI):
             endpoint = param[16:]
         elif param.startswith("AccountKey="):
             key = param[11:]
-    
+
     if not endpoint or not key:
         logger.warning("Cosmos DB connection string not fully parsed")
     else:
@@ -114,9 +112,9 @@ async def lifespan(app: FastAPI):
             message_serializer=serializer.GraphSONSerializersV2d0()
         )
         logger.info("Initialized Gremlin client")
-    
+
     yield
-    
+
     # Cleanup
     if gremlin_client:
         gremlin_client.close()
@@ -136,11 +134,11 @@ class ServiceNode(BaseModel):
     """Service node in dependency graph"""
     id: str
     name: str
-    namespace: Optional[str] = None
+    namespace: str | None = None
     criticality: str = "medium"
-    slo_target: Optional[float] = None
-    current_slo: Optional[float] = None
-    error_budget_remaining: Optional[float] = None
+    slo_target: float | None = None
+    current_slo: float | None = None
+    error_budget_remaining: float | None = None
     incident_count_24h: int = 0
     deployment_count_24h: int = 0
 
@@ -150,15 +148,15 @@ class DependencyEdge(BaseModel):
     source: str
     target: str
     type: str = "depends_on"
-    latency_p99: Optional[float] = None
-    error_rate: Optional[float] = None
-    request_volume: Optional[int] = None
+    latency_p99: float | None = None
+    error_rate: float | None = None
+    request_volume: int | None = None
 
 
 class DependencyGraph(BaseModel):
     """Full dependency graph"""
-    nodes: List[ServiceNode]
-    edges: List[DependencyEdge]
+    nodes: list[ServiceNode]
+    edges: list[DependencyEdge]
     updated_at: datetime
 
 
@@ -170,10 +168,10 @@ class IncidentSummary(BaseModel):
     status: str
     affected_service: str
     detected_at: datetime
-    resolved_at: Optional[datetime] = None
-    root_cause_candidate: Optional[str] = None
-    confidence: Optional[float] = None
-    remediation_action: Optional[str] = None
+    resolved_at: datetime | None = None
+    root_cause_candidate: str | None = None
+    confidence: float | None = None
+    remediation_action: str | None = None
 
 
 class SLOBurnData(BaseModel):
@@ -191,10 +189,10 @@ class RiskScoreHistory(BaseModel):
     """Risk score history entry"""
     timestamp: datetime
     service: str
-    deployment_id: Optional[str] = None
+    deployment_id: str | None = None
     risk_score: float
     risk_level: str  # low, medium, high, critical
-    factors: Dict[str, float]
+    factors: dict[str, float]
 
 
 class CorrelationAccuracy(BaseModel):
@@ -232,32 +230,32 @@ async def readiness_check():
 # Dependency Graph endpoints
 @app.get("/api/v1/graph/dependency", response_model=DependencyGraph)
 async def get_dependency_graph(
-    namespace: Optional[str] = Query(None, description="Filter by namespace"),
+    namespace: str | None = Query(None, description="Filter by namespace"),
     include_metrics: bool = Query(True, description="Include SLO metrics"),
 ):
     """Get the full service dependency graph"""
     if not gremlin_client:
         raise HTTPException(status_code=503, detail="Gremlin client not initialized")
-    
+
     try:
         # Query for all services
-        query = f"g.V().hasLabel('Service')"
+        query = "g.V().hasLabel('Service')"
         if namespace:
             query += f".has('namespace', '{namespace}')"
         query += ".valueMap(true)"
-        
+
         result_set = gremlin_client.submit(query)
         vertices = []
         async for result in result_set:
             vertices.append(result)
-        
+
         # Query for dependencies
         edge_query = "g.E().hasLabel('depends_on').valueMap(true)"
         edge_result = gremlin_client.submit(edge_query)
         edges = []
         async for result in edge_result:
             edges.append(result)
-        
+
         # Convert to response models
         nodes = []
         for v in vertices:
@@ -273,7 +271,7 @@ async def get_dependency_graph(
                 incident_count_24h=props.get('incidentCount24h', 0),
                 deployment_count_24h=props.get('deploymentCount24h', 0),
             ))
-        
+
         edge_list = []
         for e in edges:
             props = {k: v[0] if isinstance(v, list) else v for k, v in e.items()}
@@ -285,7 +283,7 @@ async def get_dependency_graph(
                 error_rate=props.get('errorRate'),
                 request_volume=props.get('requestVolume'),
             ))
-        
+
         return DependencyGraph(
             nodes=nodes,
             edges=edge_list,
@@ -299,27 +297,27 @@ async def get_dependency_graph(
 @app.get("/api/v1/graph/blast-radius/{service_name}")
 async def get_blast_radius(
     service_name: str,
-    namespace: Optional[str] = Query(None),
+    namespace: str | None = Query(None),
     max_hops: int = Query(3, ge=1, le=5),
 ):
     """Get blast radius for a service"""
     if not gremlin_client:
         raise HTTPException(status_code=503, detail="Gremlin client not initialized")
-    
+
     try:
         query = f"g.V().has('serviceName', '{service_name}')"
         if namespace:
             query += f".has('namespace', '{namespace}')"
         query += f".repeat(__.in('depends_on').simplePath()).times({max_hops}).emit().dedup().values('serviceName')"
-        
+
         result_set = gremlin_client.submit(query)
         services = []
         async for result in result_set:
             services.append(result)
-        
+
         # Remove the source service
         services = [s for s in services if s != service_name]
-        
+
         return {
             "source_service": service_name,
             "affected_services": services,
@@ -332,23 +330,23 @@ async def get_blast_radius(
 
 
 # Incident endpoints
-@app.get("/api/v1/incidents", response_model=List[IncidentSummary])
+@app.get("/api/v1/incidents", response_model=list[IncidentSummary])
 async def get_incidents(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    severity: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
-    service: Optional[str] = Query(None),
-    start_time: Optional[datetime] = Query(None),
-    end_time: Optional[datetime] = Query(None),
+    severity: str | None = Query(None),
+    status: str | None = Query(None),
+    service: str | None = Query(None),
+    start_time: datetime | None = Query(None),
+    end_time: datetime | None = Query(None),
 ):
     """Get incident timeline"""
     if not gremlin_client:
         raise HTTPException(status_code=503, detail="Gremlin client not initialized")
-    
+
     try:
         query = f"g.V().hasLabel('Incident').order().by('detectedAt', desc).range({offset}, {offset + limit})"
-        
+
         filters = []
         if severity:
             filters.append(f"has('severity', '{severity}')")
@@ -360,12 +358,12 @@ async def get_incidents(
             filters.append(f"has('detectedAt', gte('{start_time.isoformat()}'))")
         if end_time:
             filters.append(f"has('detectedAt', lte('{end_time.isoformat()}'))")
-        
+
         if filters:
             query = query.replace("g.V().hasLabel('Incident')", f"g.V().hasLabel('Incident').{''.join(filters)}")
-        
+
         query += ".valueMap(true)"
-        
+
         result_set = gremlin_client.submit(query)
         incidents = []
         async for result in result_set:
@@ -382,7 +380,7 @@ async def get_incidents(
                 confidence=props.get('confidence'),
                 remediation_action=props.get('remediationAction'),
             ))
-        
+
         return incidents
     except Exception as e:
         logger.error("Failed to fetch incidents", error=str(e))
@@ -394,15 +392,15 @@ async def get_incident_detail(incident_id: str):
     """Get detailed incident information"""
     if not gremlin_client:
         raise HTTPException(status_code=503, detail="Gremlin client not initialized")
-    
+
     try:
         query = f"g.V().has('incidentId', '{incident_id}').valueMap(true)"
         result_set = gremlin_client.submit(query)
-        
+
         async for result in result_set:
             props = {k: v[0] if isinstance(v, list) else v for k, v in result.items()}
             return props
-        
+
         raise HTTPException(status_code=404, detail="Incident not found")
     except HTTPException:
         raise
@@ -412,10 +410,10 @@ async def get_incident_detail(incident_id: str):
 
 
 # SLO/Burn Rate endpoints
-@app.get("/api/v1/slo/burn-rate", response_model=List[SLOBurnData])
+@app.get("/api/v1/slo/burn-rate", response_model=list[SLOBurnData])
 async def get_slo_burn_rate(
-    service: Optional[str] = Query(None),
-    slo_name: Optional[str] = Query(None),
+    service: str | None = Query(None),
+    slo_name: str | None = Query(None),
     hours: int = Query(24, ge=1, le=168),
     interval_minutes: int = Query(5, ge=1, le=60),
 ):
@@ -424,7 +422,7 @@ async def get_slo_burn_rate(
     # For now, return mock data structure
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(hours=hours)
-    
+
     # Generate mock data points
     data = []
     current = start_time
@@ -439,13 +437,13 @@ async def get_slo_burn_rate(
             error_budget_remaining=95.0 - (hash(str(current)) % 200) / 100,
         ))
         current += timedelta(minutes=interval_minutes)
-    
+
     return data
 
 
 @app.get("/api/v1/slo/status")
 async def get_slo_status(
-    service: Optional[str] = Query(None),
+    service: str | None = Query(None),
 ):
     """Get current SLO status for all services"""
     # Mock response
@@ -493,9 +491,9 @@ async def get_slo_status(
 
 
 # Risk Score endpoints
-@app.get("/api/v1/risk/history", response_model=List[RiskScoreHistory])
+@app.get("/api/v1/risk/history", response_model=list[RiskScoreHistory])
 async def get_risk_history(
-    service: Optional[str] = Query(None),
+    service: str | None = Query(None),
     hours: int = Query(168, ge=1, le=720),  # Up to 30 days
     limit: int = Query(100, ge=1, le=500),
 ):
@@ -504,7 +502,7 @@ async def get_risk_history(
     data = []
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(hours=hours)
-    
+
     current = start_time
     while current <= end_time and len(data) < limit:
         data.append(RiskScoreHistory(
@@ -521,13 +519,13 @@ async def get_risk_history(
             },
         ))
         current += timedelta(hours=1)
-    
+
     return data
 
 
 @app.get("/api/v1/risk/current")
 async def get_current_risk_scores(
-    service: Optional[str] = Query(None),
+    service: str | None = Query(None),
 ):
     """Get current risk scores for all services"""
     return {
@@ -571,7 +569,7 @@ async def get_correlation_accuracy(
     """Get correlation accuracy metrics"""
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(days=days)
-    
+
     return CorrelationAccuracy(
         period_start=start_time,
         period_end=end_time,
@@ -593,7 +591,7 @@ async def get_correlation_accuracy_history(
     data = []
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(days=days)
-    
+
     current = start_time
     while current <= end_time:
         data.append({
@@ -605,26 +603,26 @@ async def get_correlation_accuracy_history(
             "model_version": "1.0",
         })
         current += timedelta(days=1)
-    
+
     return {"history": data}
 
 
 # Change History endpoints
 @app.get("/api/v1/changes")
 async def get_changes(
-    service: Optional[str] = Query(None),
-    source: Optional[str] = Query(None),
-    change_type: Optional[str] = Query(None),
+    service: str | None = Query(None),
+    source: str | None = Query(None),
+    change_type: str | None = Query(None),
     hours: int = Query(24, ge=1, le=168),
     limit: int = Query(100, ge=1, le=500),
 ):
     """Get recent changes"""
     if not gremlin_client:
         raise HTTPException(status_code=503, detail="Gremlin client not initialized")
-    
+
     try:
         query = f"g.V().hasLabel('ChangeEvent').has('timestamp', gte('{(datetime.utcnow() - timedelta(hours=hours)).isoformat()}')).order().by('timestamp', desc).limit({limit})"
-        
+
         filters = []
         if service:
             filters.append(f"has('serviceName', '{service}')")
@@ -632,18 +630,18 @@ async def get_changes(
             filters.append(f"has('source', '{source}')")
         if change_type:
             filters.append(f"has('changeType', '{change_type}')")
-        
+
         if filters:
             query = query.replace("g.V().hasLabel('ChangeEvent')", f"g.V().hasLabel('ChangeEvent').{''.join(filters)}")
-        
+
         query += ".valueMap(true)"
-        
+
         result_set = gremlin_client.submit(query)
         changes = []
         async for result in result_set:
             props = {k: v[0] if isinstance(v, list) else v for k, v in result.items()}
             changes.append(props)
-        
+
         return {"changes": changes, "count": len(changes)}
     except Exception as e:
         logger.error("Failed to fetch changes", error=str(e))
@@ -654,27 +652,26 @@ async def get_changes(
 @app.get("/metrics")
 async def metrics():
     """Prometheus metrics endpoint"""
-    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
     from fastapi.responses import Response
-    
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 async def main():
     """Main entry point"""
-    import os
     from pydantic_settings import BaseSettings
-    
+
     class Settings(BaseSettings):
         host: str = "0.0.0.0"
         port: int = 8002
         log_level: str = "info"
-        
+
         class Config:
             env_file = ".env"
-    
+
     settings = Settings()
-    
+
     uvicorn_config = uvicorn.Config(
         app,
         host=settings.host,

@@ -6,7 +6,6 @@ REST endpoints for the dashboard UI.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
 
 import azure.functions as func
 
@@ -15,13 +14,13 @@ logger = logging.getLogger(__name__)
 
 async def get_dependency_graph(req: func.HttpRequest) -> func.HttpResponse:
     """Get the full service dependency graph."""
-    
-    namespace = req.params.get("namespace")
-    include_metrics = req.params.get("include_metrics", "true").lower() == "true"
-    
+
+    req.params.get("namespace")
+    req.params.get("include_metrics", "true").lower() == "true"
+
     # TODO: Query Cosmos DB Gremlin for graph
     # For now, return mock data
-    
+
     graph_data = {
         "nodes": [
             {
@@ -89,7 +88,7 @@ async def get_dependency_graph(req: func.HttpRequest) -> func.HttpResponse:
         ],
         "updated_at": datetime.utcnow().isoformat()
     }
-    
+
     return func.HttpResponse(
         body=str(graph_data),
         status_code=200,
@@ -99,14 +98,14 @@ async def get_dependency_graph(req: func.HttpRequest) -> func.HttpResponse:
 
 async def get_blast_radius(req: func.HttpRequest) -> func.HttpResponse:
     """Get blast radius for a service."""
-    
+
     service_name = req.params.get("service")
     if not service_name:
         return func.HttpResponse("service parameter required", status_code=400)
-    
-    namespace = req.params.get("namespace", "production")
+
+    req.params.get("namespace", "production")
     max_hops = int(req.params.get("max_hops", 3))
-    
+
     # TODO: Query graph builder service
     blast_radius = {
         "source_service": service_name,
@@ -120,7 +119,7 @@ async def get_blast_radius(req: func.HttpRequest) -> func.HttpResponse:
         "total_affected": 3,
         "critical_services_affected": ["checkout-service"]
     }
-    
+
     return func.HttpResponse(
         body=str(blast_radius),
         status_code=200,
@@ -130,15 +129,15 @@ async def get_blast_radius(req: func.HttpRequest) -> func.HttpResponse:
 
 async def get_incidents(req: func.HttpRequest) -> func.HttpResponse:
     """Get incident timeline."""
-    
-    limit = int(req.params.get("limit", 50))
-    offset = int(req.params.get("offset", 0))
-    severity = req.params.get("severity")
-    status = req.params.get("status")
-    service = req.params.get("service")
-    start_time = req.params.get("start_time")
-    end_time = req.params.get("end_time")
-    
+
+    int(req.params.get("limit", 50))
+    int(req.params.get("offset", 0))
+    req.params.get("severity")
+    req.params.get("status")
+    req.params.get("service")
+    req.params.get("start_time")
+    req.params.get("end_time")
+
     # TODO: Query Cosmos DB incidents graph
     incidents = [
         {
@@ -166,7 +165,7 @@ async def get_incidents(req: func.HttpRequest) -> func.HttpResponse:
             "remediation_action": "revert_config"
         }
     ]
-    
+
     return func.HttpResponse(
         body=str({"incidents": incidents, "count": len(incidents)}),
         status_code=200,
@@ -176,11 +175,11 @@ async def get_incidents(req: func.HttpRequest) -> func.HttpResponse:
 
 async def get_incident_detail(req: func.HttpRequest) -> func.HttpResponse:
     """Get detailed incident information."""
-    
+
     incident_id = req.route_params.get("incident_id")
     if not incident_id:
         return func.HttpResponse("incident_id required", status_code=400)
-    
+
     # TODO: Query Cosmos DB for incident detail
     incident = {
         "incident_id": incident_id,
@@ -216,7 +215,7 @@ async def get_incident_detail(req: func.HttpRequest) -> func.HttpResponse:
         "remediation_status": "completed",
         "labels": {"fault_type": "cpu_pressure", "validation": "chaos"}
     }
-    
+
     return func.HttpResponse(
         body=str(incident),
         status_code=200,
@@ -226,17 +225,17 @@ async def get_incident_detail(req: func.HttpRequest) -> func.HttpResponse:
 
 async def get_slo_burn_rate(req: func.HttpRequest) -> func.HttpResponse:
     """Get SLO burn rate data for charts."""
-    
+
     service = req.params.get("service")
     slo_name = req.params.get("slo_name")
     hours = int(req.params.get("hours", 24))
     interval_minutes = int(req.params.get("interval_minutes", 5))
-    
+
     # TODO: Query Log Analytics / Application Insights
     # Generate mock time series data
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(hours=hours)
-    
+
     data = []
     current = start_time
     while current <= end_time:
@@ -250,7 +249,7 @@ async def get_slo_burn_rate(req: func.HttpRequest) -> func.HttpResponse:
             "error_budget_remaining": 95.0 - (hash(str(current)) % 200) / 100
         })
         current += timedelta(minutes=interval_minutes)
-    
+
     return func.HttpResponse(
         body=str({"data": data}),
         status_code=200,
@@ -260,10 +259,10 @@ async def get_slo_burn_rate(req: func.HttpRequest) -> func.HttpResponse:
 
 async def get_slo_status(req: func.HttpRequest) -> func.HttpResponse:
     """Get current SLO status for all services."""
-    
-    service = req.params.get("service")
-    
-    # TODO: Query actual SLO data 
+
+    req.params.get("service")
+
+    # TODO: Query actual SLO data
     slo_status = {
         "services": [
             {
@@ -305,7 +304,7 @@ async def get_slo_status(req: func.HttpRequest) -> func.HttpResponse:
         ],
         "updated_at": datetime.utcnow().isoformat()
     }
-    
+
     return func.HttpResponse(
         body=str(slo_status),
         status_code=200,
@@ -315,9 +314,9 @@ async def get_slo_status(req: func.HttpRequest) -> func.HttpResponse:
 
 async def get_risk_scores(req: func.HttpRequest) -> func.HttpResponse:
     """Get current risk scores for all services."""
-    
-    service = req.params.get("service")
-    
+
+    req.params.get("service")
+
     # TODO: Query risk engine
     risk_scores = {
         "scores": [
@@ -354,7 +353,7 @@ async def get_risk_scores(req: func.HttpRequest) -> func.HttpResponse:
         ],
         "updated_at": datetime.utcnow().isoformat()
     }
-    
+
     return func.HttpResponse(
         body=str(risk_scores),
         status_code=200,
@@ -364,16 +363,16 @@ async def get_risk_scores(req: func.HttpRequest) -> func.HttpResponse:
 
 async def get_risk_history(req: func.HttpRequest) -> func.HttpResponse:
     """Get risk score history."""
-    
+
     service = req.params.get("service")
     hours = int(req.params.get("hours", 168))
     limit = int(req.params.get("limit", 100))
-    
+
     # TODO: Query risk history
     data = []
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(hours=hours)
-    
+
     current = start_time
     while current <= end_time and len(data) < limit:
         data.append({
@@ -392,7 +391,7 @@ async def get_risk_history(req: func.HttpRequest) -> func.HttpResponse:
             }
         })
         current += timedelta(hours=1)
-    
+
     return func.HttpResponse(
         body=str({"history": data}),
         status_code=200,
@@ -402,19 +401,19 @@ async def get_risk_history(req: func.HttpRequest) -> func.HttpResponse:
 
 async def get_current_risk_scores(req: func.HttpRequest) -> func.HttpResponse:
     """Get current risk scores for all services."""
-    
+
     return await get_risk_scores(req)
 
 
 async def get_changes(req: func.HttpRequest) -> func.HttpResponse:
     """Get recent changes."""
-    
-    service = req.params.get("service")
-    source = req.params.get("source")
-    change_type = req.params.get("change_type")
-    hours = int(req.params.get("hours", 24))
-    limit = int(req.params.get("limit", 100))
-    
+
+    req.params.get("service")
+    req.params.get("source")
+    req.params.get("change_type")
+    int(req.params.get("hours", 24))
+    int(req.params.get("limit", 100))
+
     # TODO: Query Cosmos DB change-history graph
     changes = [
         {
@@ -430,7 +429,7 @@ async def get_changes(req: func.HttpRequest) -> func.HttpResponse:
             "pipeline_name": "github/payment-service"
         }
     ]
-    
+
     return func.HttpResponse(
         body=str({"changes": changes, "count": len(changes)}),
         status_code=200,
@@ -440,9 +439,9 @@ async def get_changes(req: func.HttpRequest) -> func.HttpResponse:
 
 async def get_correlation_accuracy(req: func.HttpRequest) -> func.HttpResponse:
     """Get correlation accuracy metrics."""
-    
+
     days = int(req.params.get("days", 30))
-    
+
     # TODO: Query evaluation results
     accuracy = {
         "period_start": (datetime.utcnow() - timedelta(days=days)).isoformat(),
@@ -462,7 +461,7 @@ async def get_correlation_accuracy(req: func.HttpRequest) -> func.HttpResponse:
             "disk_io_pressure": {"runs": 5, "precision_at_1": 0.6, "recall": 0.7}
         }
     }
-    
+
     return func.HttpResponse(
         body=str(accuracy),
         status_code=200,
@@ -472,14 +471,14 @@ async def get_correlation_accuracy(req: func.HttpRequest) -> func.HttpResponse:
 
 async def get_correlation_accuracy_history(req: func.HttpRequest) -> func.HttpResponse:
     """Get correlation accuracy over time."""
-    
+
     days = int(req.params.get("days", 90))
-    
+
     # TODO: Query historical accuracy
     data = []
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(days=days)
-    
+
     current = start_time
     while current <= end_time:
         data.append({
@@ -491,7 +490,7 @@ async def get_correlation_accuracy_history(req: func.HttpRequest) -> func.HttpRe
             "model_version": "1.0"
         })
         current += timedelta(days=1)
-    
+
     return func.HttpResponse(
         body=str({"history": data}),
         status_code=200,
@@ -517,20 +516,20 @@ ROUTES = {
 
 async def main(req: func.HttpRequest) -> func.HttpResponse:
     """Main HTTP trigger for dashboard API."""
-    
+
     route_key = f"{req.method} {req.route}"
     handler = ROUTES.get(route_key)
-    
+
     if not handler:
         # Try to match with route parameters
         for pattern, h in ROUTES.items():
             if req.method in pattern and req.route.startswith(pattern.split(" ")[1].split("{")[0]):
                 handler = h
                 break
-    
+
     if not handler:
         return func.HttpResponse("Not found", status_code=404)
-    
+
     try:
         return await handler(req)
     except Exception as e:
