@@ -33,7 +33,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "lint": "eslint src --ext .ts,.tsx"
+    "lint": "eslint src"
   },
   "eslintConfig": {
     "extends": [
