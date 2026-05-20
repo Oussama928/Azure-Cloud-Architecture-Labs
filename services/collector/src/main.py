@@ -27,6 +27,7 @@ from services.shared.circuit_breaker import (
 )
 from services.shared.health_checks import (
     CosmosDBHealthCheck,
+    DependencyHealthCheck,
     HealthCheckRegistry,
     create_health_endpoint,
 )
