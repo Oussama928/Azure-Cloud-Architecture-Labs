@@ -1,18 +1,16 @@
 module.exports = [
   {
-    ignores: ['dist', 'node_modules', 'build', '.eslintrc.cjs'],
+    ignores: ['dist', 'node_modules', 'build'],
   },
   {
     files: ['src/**/*.{ts,tsx}'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
-      ecmaFeatures: { jsx: true },
       parser: require('@typescript-eslint/parser'),
       parserOptions: {
         ecmaVersion: 'latest',
         sourceType: 'module',
-        ecmaFeatures: { jsx: true },
       },
       globals: {
         browser: true,
