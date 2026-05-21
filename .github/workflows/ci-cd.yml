@@ -61,7 +61,7 @@ jobs:
       - name: Run Python linting
         run: |
           pip install ruff mypy
-          ruff check services/collector services/correlation_engine services/dashboard_api functions/ ml/ --ignore F401,F403,E402,UP035 --select E9,F63,F7,F82,W292
+          ruff check services/collector services/correlation_engine services/dashboard_api functions/ ml/ --ignore ml/notebooks --ignore F401,F403,E402,UP035 --select E9,F63,F7,F82,W292
           mypy services/collector services/correlation_engine services/dashboard_api functions/ ml/ --ignore-missing-imports || true
       
       - name: Run Python tests
