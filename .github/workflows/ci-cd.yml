@@ -108,7 +108,7 @@ jobs:
       
       - name: Run tests
         working-directory: ./dashboard
-        run: npm test -- --watchAll=false --coverage
+        run: npm test -- --coverage
       
       - name: Build production
         working-directory: ./dashboard
