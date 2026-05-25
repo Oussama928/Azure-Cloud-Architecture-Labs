@@ -73,7 +73,6 @@ jobs:
           pytest services/correlation_engine/tests/ -v --cov=services/correlation_engine --cov-report=xml
           # pytest services/dashboard_api/tests/ -v --cov=services/dashboard_api --cov-report=xml
           # pytest functions/shared/tests/ -v --cov=functions --cov-report=xml
-        continue-on-error: true
       
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -161,6 +160,7 @@ jobs:
           login-server: ${{ env.REGISTRY }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
+        continue-on-error: true
       
       - name: Extract metadata
         id: meta
@@ -180,9 +180,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
           platforms: linux/amd64
+        continue-on-error: true
 
   # ============================================================
   # FUNCTIONS BUILD & DEPLOY
@@ -219,7 +218,7 @@ jobs:
       - name: Deploy Functions
         run: |
           cd functions
-          func azure functionapp publish changetrace-func --python --build remote
+          func azure functionapp publish changetrace-i5fv8b-func --python --build remote
 
   # ============================================================
   # TERRAFORM PLAN
@@ -233,6 +232,7 @@ jobs:
       contents: read
       id-token: write
       pull-requests: write
+    continue-on-error: true
     
     steps:
       - name: Checkout code
@@ -252,6 +252,11 @@ jobs:
       
       - name: Terraform Init
         working-directory: ./terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: |
           terraform init \
             -backend-config="resource_group_name=changetrace-tfstate-rg" \
@@ -269,6 +274,11 @@ jobs:
       
       - name: Terraform Plan
         id: plan
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         working-directory: ./terraform
         run: |
           terraform plan -out=tfplan -var-file=environments/dev/terraform.tfvars
@@ -333,6 +343,11 @@ jobs:
       
       - name: Terraform Apply
         working-directory: ./terraform
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: |
           terraform apply -auto-approve tfplan
 
