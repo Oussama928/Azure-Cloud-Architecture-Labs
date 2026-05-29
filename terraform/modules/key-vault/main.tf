@@ -2,21 +2,21 @@
 
 # Key Vault (Standard tier)
 resource "azurerm_key_vault" "main" {
-  name                        = "changetrace-${var.environment}-${random_string.suffix.result}-kv"
-  location                    = var.location
-  resource_group_name         = var.resource_group_name
-  tenant_id                   = data.azurerm_client_config.current.tenant_id
-  sku_name                    = "standard"
-  purge_protection_enabled    = false
-  soft_delete_retention_days  = 7
-  enable_rbac_authorization   = true
-  
+  name                       = "changetrace-${var.environment}-${random_string.suffix.result}-kv"
+  location                   = var.location
+  resource_group_name        = var.resource_group_name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  purge_protection_enabled   = false
+  soft_delete_retention_days = 7
+  enable_rbac_authorization  = true
+
   # Network ACLs - allow from Azure services
   network_acls {
     default_action = "Allow"
     bypass         = "AzureServices"
   }
-  
+
   tags = var.common_tags
 }
 
@@ -33,35 +33,35 @@ resource "azurerm_key_vault_access_policy" "current_user" {
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = data.azurerm_client_config.current.object_id
-  
-  secret_permissions = ["Get", "List", "Set", "Delete", "Recover", "Backup", "Restore"]
-  key_permissions    = ["Get", "List", "Create", "Delete", "Recover", "Backup", "Restore"]
+
+  secret_permissions      = ["Get", "List", "Set", "Delete", "Recover", "Backup", "Restore"]
+  key_permissions         = ["Get", "List", "Create", "Delete", "Recover", "Backup", "Restore"]
   certificate_permissions = ["Get", "List", "Create", "Delete", "Recover", "Backup", "Restore"]
 }
 
 # Access policy for Function App managed identity
 resource "azurerm_key_vault_access_policy" "function_app" {
   count = var.function_app_identity_id != "" ? 1 : 0
-  
+
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = var.function_app_identity_id
-  
-  secret_permissions = ["Get", "List"]
-  key_permissions    = ["Get", "List"]
+
+  secret_permissions      = ["Get", "List"]
+  key_permissions         = ["Get", "List"]
   certificate_permissions = ["Get", "List"]
 }
 
 # Access policy for AKS managed identity 
 resource "azurerm_key_vault_access_policy" "aks_identity" {
   count = var.aks_identity_id != "" ? 1 : 0
-  
+
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = var.aks_identity_id
-  
-  secret_permissions = ["Get", "List"]
-  key_permissions    = ["Get", "List"]
+
+  secret_permissions      = ["Get", "List"]
+  key_permissions         = ["Get", "List"]
   certificate_permissions = ["Get", "List"]
 }
 

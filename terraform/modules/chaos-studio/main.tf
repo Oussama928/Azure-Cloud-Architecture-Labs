@@ -5,7 +5,7 @@ resource "azurerm_chaos_studio_workspace" "main" {
   name                = "changetrace-${var.environment}-${random_string.suffix.result}-chaos"
   location            = var.location
   resource_group_name = var.resource_group_name
-  
+
   tags = var.common_tags
 }
 
@@ -20,20 +20,20 @@ resource "random_string" "suffix" {
 # Chaos Studio target for AKS cluster
 resource "azurerm_chaos_studio_target" "aks" {
   count = var.aks_cluster_id != "" ? 1 : 0
-  
+
   name                = "changetrace-${var.environment}-aks-target"
   location            = var.location
   resource_group_name = var.resource_group_name
   workspace_id        = azurerm_chaos_studio_workspace.main.id
-  
+
   target_resource_id = var.aks_cluster_id
-  
+
   # Capabilities for AKS
   capability {
     name = "Microsoft-Agent"
     type = "Agent"
   }
-  
+
   capability {
     name = "Service-Direct"
     type = "ServiceDirect"
@@ -46,22 +46,22 @@ resource "azurerm_chaos_studio_experiment" "pod_failure" {
   location            = var.location
   resource_group_name = var.resource_group_name
   workspace_id        = azurerm_chaos_studio_workspace.main.id
-  
+
   identity {
     type = "SystemAssigned"
   }
-  
+
   # Experiment steps
   step {
     name = "inject-pod-failure"
-    
+
     branch {
       name = "pod-failure-branch"
-      
+
       action {
         name = "kill-pod"
         type = "Continuous"
-        
+
         # This would be configured with the actual fault parameters
         # For AKS pod kill, we use the Microsoft-Agent capability
         parameters = jsonencode({
@@ -77,7 +77,7 @@ resource "azurerm_chaos_studio_experiment" "pod_failure" {
       }
     }
   }
-  
+
   tags = var.common_tags
 }
 
@@ -87,21 +87,21 @@ resource "azurerm_chaos_studio_experiment" "cpu_pressure" {
   location            = var.location
   resource_group_name = var.resource_group_name
   workspace_id        = azurerm_chaos_studio_workspace.main.id
-  
+
   identity {
     type = "SystemAssigned"
   }
-  
+
   step {
     name = "inject-cpu-pressure"
-    
+
     branch {
       name = "cpu-pressure-branch"
-      
+
       action {
         name = "cpu-stress"
         type = "Continuous"
-        
+
         parameters = jsonencode({
           faultType = "CPUPressure"
           selector = {
@@ -111,13 +111,13 @@ resource "azurerm_chaos_studio_experiment" "cpu_pressure" {
             }
           }
           cpuCount = 1
-          load = 80
+          load     = 80
           duration = "PT5M"
         })
       }
     }
   }
-  
+
   tags = var.common_tags
 }
 
@@ -127,21 +127,21 @@ resource "azurerm_chaos_studio_experiment" "memory_pressure" {
   location            = var.location
   resource_group_name = var.resource_group_name
   workspace_id        = azurerm_chaos_studio_workspace.main.id
-  
+
   identity {
     type = "SystemAssigned"
   }
-  
+
   step {
     name = "inject-memory-pressure"
-    
+
     branch {
       name = "memory-pressure-branch"
-      
+
       action {
         name = "memory-stress"
         type = "Continuous"
-        
+
         parameters = jsonencode({
           faultType = "MemoryPressure"
           selector = {
@@ -151,12 +151,12 @@ resource "azurerm_chaos_studio_experiment" "memory_pressure" {
             }
           }
           memoryConsumption = "80%"
-          duration = "PT5M"
+          duration          = "PT5M"
         })
       }
     }
   }
-  
+
   tags = var.common_tags
 }
 
@@ -166,21 +166,21 @@ resource "azurerm_chaos_studio_experiment" "network_latency" {
   location            = var.location
   resource_group_name = var.resource_group_name
   workspace_id        = azurerm_chaos_studio_workspace.main.id
-  
+
   identity {
     type = "SystemAssigned"
   }
-  
+
   step {
     name = "inject-network-latency"
-    
+
     branch {
       name = "network-latency-branch"
-      
+
       action {
         name = "network-delay"
         type = "Continuous"
-        
+
         parameters = jsonencode({
           faultType = "NetworkLatency"
           selector = {
@@ -189,14 +189,14 @@ resource "azurerm_chaos_studio_experiment" "network_latency" {
               app = var.target_service_label
             }
           }
-          latency = "200ms"
-          jitter = "50ms"
+          latency  = "200ms"
+          jitter   = "50ms"
           duration = "PT5M"
         })
       }
     }
   }
-  
+
   tags = var.common_tags
 }
 
@@ -206,21 +206,21 @@ resource "azurerm_chaos_studio_experiment" "dns_failure" {
   location            = var.location
   resource_group_name = var.resource_group_name
   workspace_id        = azurerm_chaos_studio_workspace.main.id
-  
+
   identity {
     type = "SystemAssigned"
   }
-  
+
   step {
     name = "inject-dns-failure"
-    
+
     branch {
       name = "dns-failure-branch"
-      
+
       action {
         name = "dns-fault"
         type = "Continuous"
-        
+
         parameters = jsonencode({
           faultType = "DNSFailure"
           selector = {
@@ -234,7 +234,7 @@ resource "azurerm_chaos_studio_experiment" "dns_failure" {
       }
     }
   }
-  
+
   tags = var.common_tags
 }
 
@@ -244,21 +244,21 @@ resource "azurerm_chaos_studio_experiment" "disk_io_pressure" {
   location            = var.location
   resource_group_name = var.resource_group_name
   workspace_id        = azurerm_chaos_studio_workspace.main.id
-  
+
   identity {
     type = "SystemAssigned"
   }
-  
+
   step {
     name = "inject-disk-io-pressure"
-    
+
     branch {
       name = "disk-io-pressure-branch"
-      
+
       action {
         name = "io-stress"
         type = "Continuous"
-        
+
         parameters = jsonencode({
           faultType = "DiskPressure"
           selector = {
@@ -272,7 +272,7 @@ resource "azurerm_chaos_studio_experiment" "disk_io_pressure" {
       }
     }
   }
-  
+
   tags = var.common_tags
 }
 

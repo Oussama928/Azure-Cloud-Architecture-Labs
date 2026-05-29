@@ -25,7 +25,7 @@ variable "enable_aks" {
 variable "node_vm_size" {
   description = "VM size for system node pool"
   type        = string
-  default     = "Standard_B2s"  # Cheap burstable VM
+  default     = "Standard_B2s" # Cheap burstable VM
 }
 
 variable "workload_vm_size" {
@@ -55,7 +55,7 @@ variable "max_node_count" {
 variable "workload_node_count" {
   description = "Initial node count for workload pool"
   type        = number
-  default     = 0  # Scale to zero when not in use
+  default     = 0 # Scale to zero when not in use
 }
 
 variable "workload_min_count" {

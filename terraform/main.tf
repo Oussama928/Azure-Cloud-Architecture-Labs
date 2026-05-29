@@ -2,7 +2,7 @@
 
 terraform {
   required_version = ">= 1.5.0"
-  
+
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
@@ -13,7 +13,7 @@ terraform {
       version = "~> 3.6"
     }
   }
-  
+
   backend "azurerm" {
     # Configured via command line
   }
@@ -21,7 +21,7 @@ terraform {
 
 provider "azurerm" {
   features {}
-  
+
   # Use Azure CLI authentication
   # For CI/CD, will use OIDC with GitHub Actions
 }
@@ -37,7 +37,7 @@ resource "random_string" "suffix" {
 resource "azurerm_resource_group" "main" {
   name     = "changetrace-${random_string.suffix.result}-rg"
   location = var.location
-  
+
   tags = var.common_tags
 }
 
@@ -48,7 +48,7 @@ resource "azurerm_log_analytics_workspace" "main" {
   resource_group_name = azurerm_resource_group.main.name
   sku                 = "PerGB2018"
   retention_in_days   = 30
-  
+
   tags = var.common_tags
 }
 
@@ -59,33 +59,33 @@ resource "azurerm_application_insights" "main" {
   resource_group_name = azurerm_resource_group.main.name
   application_type    = "web"
   workspace_id        = azurerm_log_analytics_workspace.main.id
-  
+
   # Daily data cap (100MB free tier limit)
   daily_data_cap_in_gb = var.app_insights_daily_cap_gb
-  
+
   # Sampling to stay within free tier
   sampling_percentage = var.app_insights_sampling_percentage
-  
+
   tags = var.common_tags
 }
 
 # Key Vault (Standard tier)
 resource "azurerm_key_vault" "main" {
-  name                        = "changetrace-${random_string.suffix.result}-kv"
-  location                    = azurerm_resource_group.main.location
-  resource_group_name         = azurerm_resource_group.main.name
-  tenant_id                   = data.azurerm_client_config.current.tenant_id
-  sku_name                    = "standard"
-  purge_protection_enabled    = false
-  soft_delete_retention_days  = 7
-  
+  name                       = "changetrace-${random_string.suffix.result}-kv"
+  location                   = azurerm_resource_group.main.location
+  resource_group_name        = azurerm_resource_group.main.name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  purge_protection_enabled   = false
+  soft_delete_retention_days = 7
+
   enable_rbac_authorization = true
-  
+
   network_acls {
     default_action = "Allow"
     bypass         = "AzureServices"
   }
-  
+
   tags = var.common_tags
 }
 
@@ -94,9 +94,9 @@ resource "azurerm_key_vault_access_policy" "current_user" {
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = data.azurerm_client_config.current.object_id
-  
-  secret_permissions = ["Get", "List", "Set", "Delete", "Recover", "Backup", "Restore"]
-  key_permissions    = ["Get", "List", "Create", "Delete", "Recover", "Backup", "Restore"]
+
+  secret_permissions      = ["Get", "List", "Set", "Delete", "Recover", "Backup", "Restore"]
+  key_permissions         = ["Get", "List", "Create", "Delete", "Recover", "Backup", "Restore"]
   certificate_permissions = ["Get", "List", "Create", "Delete", "Recover", "Backup", "Restore"]
 }
 
@@ -107,35 +107,35 @@ resource "azurerm_cosmosdb_account" "main" {
   resource_group_name = azurerm_resource_group.main.name
   offer_type          = "Standard"
   kind                = "GlobalDocumentDB"
-  
+
   free_tier_enabled = var.cosmos_db_free_tier
-  
+
   # Gremlin API for graph database
   capabilities {
     name = "EnableGremlin"
   }
-  
+
   consistency_policy {
     consistency_level       = "Session"
     max_interval_in_seconds = 5
     max_staleness_prefix    = 100
   }
-  
+
   # Public network access (will be restricted in production)
   public_network_access_enabled = true
-  
+
   # Required geo_location block
   geo_location {
     location          = azurerm_resource_group.main.location
     failover_priority = 0
   }
-  
+
   backup {
-    type              = "Periodic"
+    type                = "Periodic"
     interval_in_minutes = 240
     retention_in_hours  = 8
   }
-  
+
   tags = var.common_tags
 }
 
@@ -183,7 +183,7 @@ resource "azurerm_eventgrid_topic" "cicd_events" {
   name                = "changetrace-${random_string.suffix.result}-cicd-events"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  
+
   tags = var.common_tags
 }
 
@@ -192,7 +192,7 @@ resource "azurerm_eventgrid_topic" "git_events" {
   name                = "changetrace-${random_string.suffix.result}-git-events"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  
+
   tags = var.common_tags
 }
 
@@ -201,7 +201,7 @@ resource "azurerm_eventgrid_topic" "alert_events" {
   name                = "changetrace-${random_string.suffix.result}-alert-events"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  
+
   tags = var.common_tags
 }
 
@@ -210,7 +210,7 @@ resource "azurerm_eventgrid_topic" "argo_events" {
   name                = "changetrace-${random_string.suffix.result}-argo-events"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  
+
   tags = var.common_tags
 }
 
@@ -222,12 +222,12 @@ resource "azurerm_storage_account" "main" {
   account_tier             = "Standard"
   account_replication_type = "LRS"
   min_tls_version          = "TLS1_2"
-  
+
   # Enable blob versioning for state file protection
   blob_properties {
     versioning_enabled = true
   }
-  
+
   tags = var.common_tags
 }
 
@@ -244,8 +244,8 @@ resource "azurerm_service_plan" "consumption" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   os_type             = "Linux"
-  sku_name            = "Y1"  # Consumption plan
-  tags = var.common_tags
+  sku_name            = "Y1" # Consumption plan
+  tags                = var.common_tags
 }
 
 # Key Vault secrets for Function App configuration
@@ -317,44 +317,44 @@ resource "azurerm_key_vault_secret" "appinsights_connection_string" {
 
 # Function App (Consumption plan - free tier)
 resource "azurerm_linux_function_app" "main" {
-  name                = "changetrace-${random_string.suffix.result}-func"
-  location            = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
+  name                 = "changetrace-${random_string.suffix.result}-func"
+  location             = azurerm_resource_group.main.location
+  resource_group_name  = azurerm_resource_group.main.name
   storage_account_name = azurerm_storage_account.main.name
-  service_plan_id     = azurerm_service_plan.consumption.id
-  
+  service_plan_id      = azurerm_service_plan.consumption.id
+
   site_config {
     application_stack {
       python_version = "3.12"
     }
-    
+
     cors {
       allowed_origins = ["*"]
     }
   }
-  
+
   identity {
     type = "SystemAssigned"
   }
-  
+
   # Application settings with Key Vault references
   app_settings = {
-    "COSMOS_DB_CONNECTION_STRING" = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.cosmos_connection.name}/)"
-    "EVENTGRID_CICD_ENDPOINT"     = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_endpoint.name}/)"
-    "EVENTGRID_CICD_KEY"          = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_key.name}/)"
-    "EVENTGRID_GIT_ENDPOINT"      = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_git_endpoint.name}/)"
-    "EVENTGRID_GIT_KEY"           = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_git_key.name}/)"
-    "EVENTGRID_ALERT_ENDPOINT"    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_alert_endpoint.name}/)"
-    "EVENTGRID_ALERT_KEY"         = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_alert_key.name}/)"
-    "EVENTGRID_ARGO_ENDPOINT"     = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_argo_endpoint.name}/)"
-    "EVENTGRID_ARGO_KEY"          = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_argo_key.name}/)"
-    "APPINSIGHTS_INSTRUMENTATIONKEY" = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.appinsights_key.name}/)"
+    "COSMOS_DB_CONNECTION_STRING"           = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.cosmos_connection.name}/)"
+    "EVENTGRID_CICD_ENDPOINT"               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_endpoint.name}/)"
+    "EVENTGRID_CICD_KEY"                    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_key.name}/)"
+    "EVENTGRID_GIT_ENDPOINT"                = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_git_endpoint.name}/)"
+    "EVENTGRID_GIT_KEY"                     = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_git_key.name}/)"
+    "EVENTGRID_ALERT_ENDPOINT"              = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_alert_endpoint.name}/)"
+    "EVENTGRID_ALERT_KEY"                   = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_alert_key.name}/)"
+    "EVENTGRID_ARGO_ENDPOINT"               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_argo_endpoint.name}/)"
+    "EVENTGRID_ARGO_KEY"                    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_argo_key.name}/)"
+    "APPINSIGHTS_INSTRUMENTATIONKEY"        = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.appinsights_key.name}/)"
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.appinsights_connection_string.name}/)"
-    "PYTHON_ENABLE_WORKER_EXTENSIONS" = "1"
-    "FUNCTIONS_WORKER_RUNTIME" = "python"
+    "PYTHON_ENABLE_WORKER_EXTENSIONS"       = "1"
+    "FUNCTIONS_WORKER_RUNTIME"              = "python"
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.main.connection_string
   }
-  
+
   tags = var.common_tags
 }
 
@@ -363,7 +363,7 @@ resource "azurerm_key_vault_access_policy" "function_app" {
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = azurerm_linux_function_app.main.identity[0].principal_id
-  
+
   secret_permissions = ["Get", "List"]
 }
 
@@ -374,12 +374,12 @@ resource "azurerm_container_registry" "main" {
   resource_group_name = azurerm_resource_group.main.name
   sku                 = "Basic"
   admin_enabled       = false
-  
+
   # Enable managed identity
   identity {
     type = "SystemAssigned"
   }
-  
+
   tags = var.common_tags
 }
 

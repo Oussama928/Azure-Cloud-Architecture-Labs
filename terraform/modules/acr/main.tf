@@ -2,39 +2,39 @@
 
 resource "azurerm_container_registry" "main" {
   count = var.enable_acr ? 1 : 0
-  
+
   name                = "changetrace${var.environment}${random_string.suffix.result}acr"
   location            = var.location
   resource_group_name = var.resource_group_name
   sku                 = var.sku
   admin_enabled       = false
-  
+
   # Enable managed identity
   identity {
     type = "SystemAssigned"
   }
-  
+
   # Geo-replication (disabled for dev to save cost)
   georeplication_locations = var.environment == "prod" ? [var.geo_replication_location] : []
-  
+
   # Network rules
   network_rule_set {
     default_action = var.environment == "prod" ? "Deny" : "Allow"
-    
+
     ip_rule {
-      action = "Allow"
+      action   = "Allow"
       ip_range = var.allowed_ip_range
     }
-    
+
     virtual_network_subnet_id = var.subnet_id
   }
-  
+
   # Retention policy for untagged manifests
   retention_policy {
-    days = 7
+    days    = 7
     enabled = true
   }
-  
+
   tags = var.common_tags
 }
 
@@ -49,7 +49,7 @@ resource "random_string" "suffix" {
 # Grant Function App access to ACR
 resource "azurerm_role_assignment" "function_app_acr_pull" {
   count = var.enable_acr && var.function_app_identity_id != "" ? 1 : 0
-  
+
   scope                = azurerm_container_registry.main[0].id
   role_definition_name = "AcrPull"
   principal_id         = var.function_app_identity_id
@@ -58,7 +58,7 @@ resource "azurerm_role_assignment" "function_app_acr_pull" {
 # Grant AKS access to ACR
 resource "azurerm_role_assignment" "aks_acr_pull" {
   count = var.enable_acr && var.aks_identity_id != "" ? 1 : 0
-  
+
   scope                = azurerm_container_registry.main[0].id
   role_definition_name = "AcrPull"
   principal_id         = var.aks_identity_id

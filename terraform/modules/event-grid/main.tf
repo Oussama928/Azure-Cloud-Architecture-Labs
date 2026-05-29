@@ -6,7 +6,7 @@ resource "azurerm_eventgrid_system_topic" "resource_events" {
   location            = var.location
   resource_group_name = var.resource_group_name
   source_type         = "Microsoft.Resources.ResourceGroups"
-  
+
   tags = var.common_tags
 }
 
@@ -16,7 +16,7 @@ resource "azurerm_eventgrid_topic" "cicd_events" {
   location            = var.location
   resource_group_name = var.resource_group_name
   kind                = "Custom"
-  
+
   tags = var.common_tags
 }
 
@@ -26,7 +26,7 @@ resource "azurerm_eventgrid_topic" "git_events" {
   location            = var.location
   resource_group_name = var.resource_group_name
   kind                = "Custom"
-  
+
   tags = var.common_tags
 }
 
@@ -36,7 +36,7 @@ resource "azurerm_eventgrid_topic" "alert_events" {
   location            = var.location
   resource_group_name = var.resource_group_name
   kind                = "Custom"
-  
+
   tags = var.common_tags
 }
 
@@ -46,7 +46,7 @@ resource "azurerm_eventgrid_topic" "argo_events" {
   location            = var.location
   resource_group_name = var.resource_group_name
   kind                = "Custom"
-  
+
   tags = var.common_tags
 }
 
@@ -54,9 +54,9 @@ resource "azurerm_eventgrid_topic" "argo_events" {
 resource "azurerm_eventgrid_event_subscription" "resource_changes" {
   name  = "resource-changes-to-cicd-topic"
   scope = var.resource_group_id
-  
+
   event_delivery_schema = "CloudEventSchemaV1_0"
-  
+
   filter {
     included_event_types = [
       "Microsoft.Resources.ResourceWriteSuccess",
@@ -66,17 +66,17 @@ resource "azurerm_eventgrid_event_subscription" "resource_changes" {
     ]
     is_subject_case_sensitive = false
   }
-  
+
   destination {
-    type = "EventGridTopic"
+    type     = "EventGridTopic"
     endpoint = azurerm_eventgrid_topic.cicd_events.endpoint
   }
-  
+
   retry_policy {
-    max_delivery_attempts = 30
+    max_delivery_attempts         = 30
     event_time_to_live_in_minutes = 1440
   }
-  
+
   # Dead letter destination (storage account)
   dead_letter_destination {
     storage_blob {
@@ -90,9 +90,9 @@ resource "azurerm_eventgrid_event_subscription" "resource_changes" {
 resource "azurerm_eventgrid_event_subscription" "cicd_to_function" {
   name  = "cicd-events-to-function"
   scope = azurerm_eventgrid_topic.cicd_events.id
-  
+
   event_delivery_schema = "CloudEventSchemaV1_0"
-  
+
   filter {
     included_event_types = [
       "DeploymentStarted",
@@ -106,19 +106,19 @@ resource "azurerm_eventgrid_event_subscription" "cicd_to_function" {
     ]
     is_subject_case_sensitive = false
   }
-  
+
   destination {
     type = "AzureFunction"
     azure_function {
-      function_app_id = var.function_app_id
-      function_name   = "ProcessCICDEvent"
-      max_events_per_batch = 10
+      function_app_id                   = var.function_app_id
+      function_name                     = "ProcessCICDEvent"
+      max_events_per_batch              = 10
       preferred_batch_size_in_kilobytes = 64
     }
   }
-  
+
   retry_policy {
-    max_delivery_attempts = 30
+    max_delivery_attempts         = 30
     event_time_to_live_in_minutes = 1440
   }
 }
@@ -127,9 +127,9 @@ resource "azurerm_eventgrid_event_subscription" "cicd_to_function" {
 resource "azurerm_eventgrid_event_subscription" "git_to_function" {
   name  = "git-events-to-function"
   scope = azurerm_eventgrid_topic.git_events.id
-  
+
   event_delivery_schema = "CloudEventSchemaV1_0"
-  
+
   filter {
     included_event_types = [
       "PullRequestMerged",
@@ -139,19 +139,19 @@ resource "azurerm_eventgrid_event_subscription" "git_to_function" {
     ]
     is_subject_case_sensitive = false
   }
-  
+
   destination {
     type = "AzureFunction"
     azure_function {
-      function_app_id = var.function_app_id
-      function_name   = "ProcessGitEvent"
-      max_events_per_batch = 10
+      function_app_id                   = var.function_app_id
+      function_name                     = "ProcessGitEvent"
+      max_events_per_batch              = 10
       preferred_batch_size_in_kilobytes = 64
     }
   }
-  
+
   retry_policy {
-    max_delivery_attempts = 30
+    max_delivery_attempts         = 30
     event_time_to_live_in_minutes = 1440
   }
 }
@@ -160,9 +160,9 @@ resource "azurerm_eventgrid_event_subscription" "git_to_function" {
 resource "azurerm_eventgrid_event_subscription" "alert_to_function" {
   name  = "alert-events-to-function"
   scope = azurerm_eventgrid_topic.alert_events.id
-  
+
   event_delivery_schema = "CloudEventSchemaV1_0"
-  
+
   filter {
     included_event_types = [
       "SLOAlertFired",
@@ -171,19 +171,19 @@ resource "azurerm_eventgrid_event_subscription" "alert_to_function" {
     ]
     is_subject_case_sensitive = false
   }
-  
+
   destination {
     type = "AzureFunction"
     azure_function {
-      function_app_id = var.function_app_id
-      function_name   = "ProcessAlertEvent"
-      max_events_per_batch = 1
+      function_app_id                   = var.function_app_id
+      function_name                     = "ProcessAlertEvent"
+      max_events_per_batch              = 1
       preferred_batch_size_in_kilobytes = 64
     }
   }
-  
+
   retry_policy {
-    max_delivery_attempts = 30
+    max_delivery_attempts         = 30
     event_time_to_live_in_minutes = 1440
   }
 }
@@ -192,9 +192,9 @@ resource "azurerm_eventgrid_event_subscription" "alert_to_function" {
 resource "azurerm_eventgrid_event_subscription" "argo_to_function" {
   name  = "argo-events-to-function"
   scope = azurerm_eventgrid_topic.argo_events.id
-  
+
   event_delivery_schema = "CloudEventSchemaV1_0"
-  
+
   filter {
     included_event_types = [
       "RolloutStarted",
@@ -208,19 +208,19 @@ resource "azurerm_eventgrid_event_subscription" "argo_to_function" {
     ]
     is_subject_case_sensitive = false
   }
-  
+
   destination {
     type = "AzureFunction"
     azure_function {
-      function_app_id = var.function_app_id
-      function_name   = "ProcessArgoEvent"
-      max_events_per_batch = 10
+      function_app_id                   = var.function_app_id
+      function_name                     = "ProcessArgoEvent"
+      max_events_per_batch              = 10
       preferred_batch_size_in_kilobytes = 64
     }
   }
-  
+
   retry_policy {
-    max_delivery_attempts = 30
+    max_delivery_attempts         = 30
     event_time_to_live_in_minutes = 1440
   }
 }
