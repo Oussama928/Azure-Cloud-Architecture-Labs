@@ -89,12 +89,15 @@ resource "azurerm_key_vault" "main" {
   tags = var.common_tags
 }
 
-# Key Vault role assignment for the current user (for development)
-# Using RBAC instead of deprecated access policies
-resource "azurerm_key_vault_role_assignment" "current_user" {
+# Key Vault access policy for the current user (for development)
+resource "azurerm_key_vault_access_policy" "current_user" {
   key_vault_id = azurerm_key_vault.main.id
-  role_definition_id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/providers/Microsoft.Authorization/roleDefinitions/00482a5a-887f-4fb3-b363-3b7fe8e74483" # Key Vault Secrets Officer
-  principal_id = data.azurerm_client_config.current.object_id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = data.azurerm_client_config.current.object_id
+
+  secret_permissions      = ["Get", "List", "Set", "Delete", "Recover", "Backup", "Restore"]
+  key_permissions         = ["Get", "List", "Create", "Delete", "Recover", "Backup", "Restore"]
+  certificate_permissions = ["Get", "List", "Create", "Delete", "Recover", "Backup", "Restore"]
 }
 
 # Cosmos DB Account (Free tier)
@@ -249,7 +252,7 @@ resource "azurerm_service_plan" "consumption" {
 resource "azurerm_key_vault_secret" "cosmos_connection" {
   name         = "cosmos-db-connection-string"
   key_vault_id = azurerm_key_vault.main.id
-  value        = azurerm_cosmosdb_account.main.primary_connection_string
+  value        = azurerm_cosmosdb_account.main.connection_strings[0]
 }
 
 resource "azurerm_key_vault_secret" "eventgrid_cicd_endpoint" {
