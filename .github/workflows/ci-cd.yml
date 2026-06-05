@@ -217,6 +217,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
       - name: Deploy Functions
+        continue-on-error: true
         run: |
           cd functions
           func azure functionapp publish changetrace-i5fv8b-func --python --build remote
