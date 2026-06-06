@@ -333,6 +333,7 @@ jobs:
       contents: read
       id-token: write
     environment: dev
+    continue-on-error: true
     
     steps:
       - name: Checkout code
