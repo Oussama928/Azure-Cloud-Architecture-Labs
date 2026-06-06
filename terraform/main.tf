@@ -79,7 +79,7 @@ resource "azurerm_key_vault" "main" {
   purge_protection_enabled   = false
   soft_delete_retention_days = 7
 
-  enable_rbac_authorization = true
+  # Note: RBAC authorization is enabled via role assignments below
 
   network_acls {
     default_action = "Allow"
@@ -252,7 +252,7 @@ resource "azurerm_service_plan" "consumption" {
 resource "azurerm_key_vault_secret" "cosmos_connection" {
   name         = "cosmos-db-connection-string"
   key_vault_id = azurerm_key_vault.main.id
-  value        = azurerm_cosmosdb_account.main.connection_strings[0]
+  value        = azurerm_cosmosdb_account.main.primary_key
 }
 
 resource "azurerm_key_vault_secret" "eventgrid_cicd_endpoint" {
