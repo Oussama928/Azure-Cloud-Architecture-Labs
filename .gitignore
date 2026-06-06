@@ -202,7 +202,8 @@ details.md
 *.tfstate.backup
 .terraform/
 .terraform.lock.hcl
-terraform.tfvars
+/terraform.tfvars
+!environments/dev/terraform.tfvars
 terraform.tfvars.*.local
 *.tfplan
 *.tfplan.out

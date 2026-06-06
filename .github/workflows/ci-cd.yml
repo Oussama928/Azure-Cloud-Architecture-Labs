@@ -183,6 +183,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
         continue-on-error: true
+        # Retry on transient network errors (e.g. Docker Hub timeouts)
+        timeout-minutes: 15
 
   # ============================================================
   # FUNCTIONS BUILD & DEPLOY
@@ -220,7 +222,19 @@ jobs:
         continue-on-error: true
         run: |
           cd functions
-          func azure functionapp publish changetrace-i5fv8b-func --python --build remote
+          max_retries=3
+          retry_delay=15
+          for i in $(seq 1 $max_retries); do
+            echo "Attempt $i of $max_retries..."
+            func azure functionapp publish changetrace-i5fv8b-func --python --build remote && break
+            if [ $i -lt $max_retries ]; then
+              echo "Deployment failed, retrying in ${retry_delay}s..."
+              sleep $retry_delay
+            else
+              echo "All retries exhausted."
+              exit 1
+            fi
+          done
 
   # ============================================================
   # TERRAFORM PLAN
@@ -339,7 +353,7 @@ jobs:
         run: |
           terraform init \
             -backend-config="resource_group_name=changetrace-tfstate-rg" \
-            -backend-config="storage_account_name=changetracetfstate" \
+            -backend-config="storage_account_name=changetracetfstate8324" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=changetrace.tfstate"
       
