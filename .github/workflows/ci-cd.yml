@@ -185,6 +185,24 @@ jobs:
         continue-on-error: true
         # Retry on transient network errors (e.g. Docker Hub timeouts)
         timeout-minutes: 15
+        env:
+          DOCKER_BUILDKIT: 1
+      
+      # Retry build on transient failures
+      - name: Retry build on failure
+        if: failure() && steps.build-push.outcome == 'failure'
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: |
+            docker buildx build \
+              --platform linux/amd64 \
+              --file ./services/${{ matrix.service }}/Dockerfile \
+              --tag ${{ steps.meta.outputs.tags }} \
+              --label ${{ steps.meta.outputs.labels }} \
+              --push \
+              .
 
   # ============================================================
   # FUNCTIONS BUILD & DEPLOY
