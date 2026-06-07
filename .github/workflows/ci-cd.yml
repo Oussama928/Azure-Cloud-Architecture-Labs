@@ -222,18 +222,31 @@ jobs:
         continue-on-error: true
         run: |
           cd functions
-          max_retries=3
-          retry_delay=15
+          max_retries=5
+          retry_delay=30
           for i in $(seq 1 $max_retries); do
             echo "Attempt $i of $max_retries..."
-            func azure functionapp publish changetrace-i5fv8b-func --python --build remote && break
-            if [ $i -lt $max_retries ]; then
-              echo "Deployment failed, retrying in ${retry_delay}s..."
-              sleep $retry_delay
-            else
+            output=$(func azure functionapp publish changetrace-i5fv8b-func --python --build remote 2>&1)
+            exit_code=$?
+            echo "$output"
+            if [ $exit_code -eq 0 ]; then
+              echo "Deployment successful!"
+              break
+            fi
+            # Check for retryable errors
+            if echo "$output" | grep -q "Conflict\|TooManyRequests\|deployment currently in progress"; then
+              echo "Retryable error detected, waiting ${retry_delay}s..."
+              if [ $i -lt $max_retries ]; then
+                sleep $retry_delay
+                continue
+              fi
+            fi
+            # Non-retryable error or max retries reached
+            if [ $i -eq $max_retries ]; then
               echo "All retries exhausted."
               exit 1
             fi
+            sleep $retry_delay
           done
 
   # ============================================================
@@ -333,7 +346,6 @@ jobs:
       contents: read
       id-token: write
     environment: dev
-    continue-on-error: true
     
     steps:
       - name: Checkout code
