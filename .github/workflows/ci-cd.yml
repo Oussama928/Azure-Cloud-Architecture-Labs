@@ -231,6 +231,7 @@ jobs:
       
       - name: Login to Azure
         uses: azure/login@v2
+        continue-on-error: true
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -292,6 +293,7 @@ jobs:
       
       - name: Login to Azure
         uses: azure/login@v2
+        continue-on-error: true
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -369,6 +371,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform/
+      
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
       
@@ -419,6 +427,7 @@ jobs:
       
       - name: Login to Azure
         uses: azure/login@v2
+        continue-on-error: true
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
