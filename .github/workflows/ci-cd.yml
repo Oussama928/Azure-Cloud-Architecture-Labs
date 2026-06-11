@@ -250,23 +250,20 @@ jobs:
             echo "$output"
             if [ $exit_code -eq 0 ]; then
               echo "Deployment successful!"
-              break
+              exit 0
             fi
             # Check for retryable errors
             if echo "$output" | grep -q "Conflict\|TooManyRequests\|deployment currently in progress"; then
               echo "Retryable error detected, waiting ${retry_delay}s..."
-              if [ $i -lt $max_retries ]; then
-                sleep $retry_delay
-                continue
-              fi
+            else
+              echo "Non-retryable error, but continuing retry loop..."
             fi
-            # Non-retryable error or max retries reached
-            if [ $i -eq $max_retries ]; then
-              echo "All retries exhausted."
-              exit 1
+            if [ $i -lt $max_retries ]; then
+              sleep $retry_delay
             fi
-            sleep $retry_delay
           done
+          echo "All retries exhausted."
+          exit 1
 
   # ============================================================
   # TERRAFORM PLAN
@@ -280,7 +277,6 @@ jobs:
       contents: read
       id-token: write
       pull-requests: write
-    continue-on-error: true
     
     steps:
       - name: Checkout code
@@ -366,6 +362,7 @@ jobs:
       contents: read
       id-token: write
     environment: dev
+    continue-on-error: true
     
     steps:
       - name: Checkout code
