@@ -231,7 +231,6 @@ jobs:
       
       - name: Login to Azure
         uses: azure/login@v2
-        continue-on-error: true
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -244,23 +243,15 @@ jobs:
           max_retries=5
           retry_delay=30
           for i in $(seq 1 $max_retries); do
-            echo "Attempt $i of $max_retries..."
-            output=$(func azure functionapp publish changetrace-i5fv8b-func --python --build remote 2>&1)
+            echo "=== Attempt $i of $max_retries ==="
+            func azure functionapp publish changetrace-i5fv8b-func --python --build remote --verbose 2>&1
             exit_code=$?
-            echo "$output"
             if [ $exit_code -eq 0 ]; then
               echo "Deployment successful!"
               exit 0
             fi
-            # Check for retryable errors
-            if echo "$output" | grep -q "Conflict\|TooManyRequests\|deployment currently in progress"; then
-              echo "Retryable error detected, waiting ${retry_delay}s..."
-            else
-              echo "Non-retryable error, but continuing retry loop..."
-            fi
-            if [ $i -lt $max_retries ]; then
-              sleep $retry_delay
-            fi
+            echo "Deployment failed with exit code $exit_code. Waiting ${retry_delay}s..."
+            sleep $retry_delay
           done
           echo "All retries exhausted."
           exit 1
@@ -376,6 +367,8 @@ jobs:
       
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.0
       
       - name: Login to Azure
         uses: azure/login@v2
