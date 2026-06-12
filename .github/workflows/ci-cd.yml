@@ -228,32 +228,22 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r functions/requirements.txt
-          pip install azure-functions
       
       - name: Build Functions package
         run: |
           cd functions
-          # Create a clean deployment package
           rm -rf .python_packages
           pip install --target=".python_packages/lib/site-packages" -r requirements.txt
-          # Create zip package
           zip -r functionapp.zip . -x "*.git*" "__pycache__/*" "*.pyc" "tests/*" "*.zip" "local.settings.json" "host.json.bak"
       
-      - name: Login to Azure
-        uses: azure/login@v2
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      
-      - name: Deploy Functions via Azure CLI (ZIP Deploy)
-        run: |
-          az functionapp deployment source config-zip \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --name changetrace-i5fv8b-func \
-            --src functions/functionapp.zip
-        env:
-          AZURE_RESOURCE_GROUP: changetrace-i5fv8b-rg
+          app-name: changetrace-i5fv8b-func
+          package: functions/functionapp.zip
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+          scm-do-build-during-deployment: false
+          enable-oryx-build: false
 
   # ============================================================
   # TERRAFORM PLAN
