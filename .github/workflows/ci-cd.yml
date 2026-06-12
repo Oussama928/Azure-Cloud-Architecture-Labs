@@ -225,9 +225,19 @@ jobs:
         with:
           python-version: '3.12'
       
-      - name: Install Azure Functions Core Tools
+      - name: Install dependencies
         run: |
-          npm install -g azure-functions-core-tools@4 --unsafe-perm true
+          pip install -r functions/requirements.txt
+          pip install azure-functions
+      
+      - name: Build Functions package
+        run: |
+          cd functions
+          # Create a clean deployment package
+          rm -rf .python_packages
+          pip install --target=".python_packages/lib/site-packages" -r requirements.txt
+          # Create zip package
+          zip -r functionapp.zip . -x "*.git*" "__pycache__/*" "*.pyc" "tests/*" "*.zip" "local.settings.json" "host.json.bak"
       
       - name: Login to Azure
         uses: azure/login@v2
@@ -236,26 +246,14 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
-      - name: Deploy Functions
+      - name: Deploy Functions via Azure CLI (ZIP Deploy)
         run: |
-          cd functions
-          max_retries=5
-          retry_delay=30
-          for i in $(seq 1 $max_retries); do
-            echo "=== Attempt $i of $max_retries ==="
-            func azure functionapp publish changetrace-i5fv8b-func --python --build remote --verbose 2>&1
-            exit_code=$?
-            if [ $exit_code -eq 0 ]; then
-              echo "Deployment successful!"
-              # Wait a bit for triggers to sync
-              sleep 10
-              exit 0
-            fi
-            echo "Deployment failed with exit code $exit_code. Waiting ${retry_delay}s..."
-            sleep $retry_delay
-          done
-          echo "All retries exhausted."
-          exit 1
+          az functionapp deployment source config-zip \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name changetrace-i5fv8b-func \
+            --src functions/functionapp.zip
+        env:
+          AZURE_RESOURCE_GROUP: changetrace-i5fv8b-rg
 
   # ============================================================
   # TERRAFORM PLAN
