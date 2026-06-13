@@ -243,13 +243,14 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
-      - name: Deploy to Azure Functions
-        uses: Azure/functions-action@v1
-        with:
-          app-name: changetrace-i5fv8b-func
-          package: functions/functionapp.zip
-          scm-do-build-during-deployment: false
-          enable-oryx-build: false
+      - name: Deploy to Azure Functions (Kudu ZipDeploy)
+        run: |
+          az webapp deploy \
+            --resource-group changetrace-i5fv8b-rg \
+            --name changetrace-i5fv8b-func \
+            --src-path functions/functionapp.zip \
+            --type zip \
+            --restart
 
   # ============================================================
   # TERRAFORM PLAN
