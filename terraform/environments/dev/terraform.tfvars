@@ -25,8 +25,8 @@ github_repository = ""
 # Email for alerts
 alert_email = ""
 
-# Cosmos DB free tier  
-cosmos_db_free_tier = true
+# Cosmos DB free tier - DISABLED (1 per subscription limit, already used)
+cosmos_db_free_tier = false
 
 # Application Insights daily cap (100MB free tier)
 app_insights_daily_cap_gb = 0.1
@@ -35,4 +35,4 @@ app_insights_daily_cap_gb = 0.1
 app_insights_sampling_percentage = 10
 
 # GitHub Actions Service Principal Object ID (for Key Vault access in CI/CD)
-github_actions_sp_object_id = ""
+github_actions_sp_object_id = "335fcb5b-836f-4113-86fd-588d280f6012"
