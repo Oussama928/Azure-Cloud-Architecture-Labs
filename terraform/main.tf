@@ -100,6 +100,15 @@ resource "azurerm_key_vault_access_policy" "current_user" {
   certificate_permissions = ["Get", "List", "Create", "Delete", "Recover", "Backup", "Restore"]
 }
 
+# Key Vault access policy for GitHub Actions service principal (for CI/CD)
+resource "azurerm_key_vault_access_policy" "github_actions" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = var.github_actions_sp_object_id
+
+  secret_permissions = ["Get", "List", "Set", "Delete", "Recover"]
+}
+
 # Cosmos DB Account (Free tier)
 resource "azurerm_cosmosdb_account" "main" {
   name                = "changetrace-${random_string.suffix.result}-cosmos"
@@ -108,7 +117,8 @@ resource "azurerm_cosmosdb_account" "main" {
   offer_type          = "Standard"
   kind                = "GlobalDocumentDB"
 
-  free_tier_enabled = var.cosmos_db_free_tier
+  # Free tier disabled - only 1 per subscription allowed
+  # free_tier_enabled = var.cosmos_db_free_tier
 
   # Gremlin API for graph database
   capabilities {
@@ -234,7 +244,7 @@ resource "azurerm_storage_account" "main" {
 # Storage container for function app
 resource "azurerm_storage_container" "function_app" {
   name                  = "changetrace-functions"
-  storage_account_name  = azurerm_storage_account.main.name
+  storage_account_id    = azurerm_storage_account.main.id
   container_access_type = "private"
 }
 
@@ -320,7 +330,7 @@ resource "azurerm_linux_function_app" "main" {
   name                 = "changetrace-${random_string.suffix.result}-func"
   location             = azurerm_resource_group.main.location
   resource_group_name  = azurerm_resource_group.main.name
-  storage_account_name = azurerm_storage_account.main.name
+  storage_account_id   = azurerm_storage_account.main.id
   service_plan_id      = azurerm_service_plan.consumption.id
 
   site_config {

@@ -33,3 +33,6 @@ app_insights_daily_cap_gb = 0.1
 
 # Application Insights sampling (10% = 10)
 app_insights_sampling_percentage = 10
+
+# GitHub Actions Service Principal Object ID (for Key Vault access in CI/CD)
+github_actions_sp_object_id = ""

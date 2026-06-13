@@ -84,3 +84,9 @@ variable "app_insights_sampling_percentage" {
   type        = number
   default     = 10
 }
+
+variable "github_actions_sp_object_id" {
+  description = "Object ID of the GitHub Actions service principal for Key Vault access"
+  type        = string
+  default     = ""
+}
