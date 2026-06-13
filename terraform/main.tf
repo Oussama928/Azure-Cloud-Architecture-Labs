@@ -339,6 +339,7 @@ resource "azurerm_linux_function_app" "main" {
 
   # Application settings with Key Vault references
   app_settings = {
+    "AzureWebJobsStorage"                   = azurerm_storage_account.main.primary_connection_string
     "COSMOS_DB_CONNECTION_STRING"           = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.cosmos_connection.name}/)"
     "EVENTGRID_CICD_ENDPOINT"               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_endpoint.name}/)"
     "EVENTGRID_CICD_KEY"                    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_key.name}/)"
@@ -352,7 +353,6 @@ resource "azurerm_linux_function_app" "main" {
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.appinsights_connection_string.name}/)"
     "PYTHON_ENABLE_WORKER_EXTENSIONS"       = "1"
     "FUNCTIONS_WORKER_RUNTIME"              = "python"
-    "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.main.connection_string
   }
 
   tags = var.common_tags

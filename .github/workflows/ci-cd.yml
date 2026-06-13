@@ -229,6 +229,10 @@ jobs:
         run: |
           pip install -r functions/requirements.txt
       
+      - name: Install Azure Functions Core Tools
+        run: |
+          npm install -g azure-functions-core-tools@4 --unsafe-perm true
+      
       - name: Build Functions package
         run: |
           cd functions
@@ -243,14 +247,38 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
-      - name: Deploy to Azure Functions (Kudu ZipDeploy)
+      - name: Refresh AzureWebJobsStorage and Deploy Functions
         run: |
-          az webapp deploy \
+          # Get current storage connection string and update app setting
+          STORAGE_KEY=$(az storage account keys list \
+            --resource-group changetrace-i5fv8b-rg \
+            --account-name changetracei5fv8bsa \
+            --query '[0].value' -o tsv)
+          
+          CONN_STRING="DefaultEndpointsProtocol=https;AccountName=changetracei5fv8bsa;AccountKey=${STORAGE_KEY};EndpointSuffix=core.windows.net"
+          
+          az functionapp config appsettings set \
             --resource-group changetrace-i5fv8b-rg \
             --name changetrace-i5fv8b-func \
-            --src-path functions/functionapp.zip \
-            --type zip \
-            --restart
+            --settings "AzureWebJobsStorage=${CONN_STRING}"
+          
+          # Now deploy with func
+          cd functions
+          max_retries=5
+          retry_delay=30
+          for i in $(seq 1 $max_retries); do
+            echo "=== Attempt $i of $max_retries ==="
+            func azure functionapp publish changetrace-i5fv8b-func --python --build remote --verbose 2>&1
+            exit_code=$?
+            if [ $exit_code -eq 0 ]; then
+              echo "Deployment successful!"
+              exit 0
+            fi
+            echo "Deployment failed with exit code $exit_code. Waiting ${retry_delay}s..."
+            sleep $retry_delay
+          done
+          echo "All retries exhausted."
+          exit 1
 
   # ============================================================
   # TERRAFORM PLAN
