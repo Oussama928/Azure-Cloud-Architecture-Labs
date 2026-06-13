@@ -327,11 +327,11 @@ resource "azurerm_key_vault_secret" "appinsights_connection_string" {
 
 # Function App (Consumption plan - free tier)
 resource "azurerm_linux_function_app" "main" {
-  name                = "changetrace-${random_string.suffix.result}-func"
-  location            = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
-  storage_account_id  = azurerm_storage_account.main.id
-  service_plan_id     = azurerm_service_plan.consumption.id
+  name                 = "changetrace-${random_string.suffix.result}-func"
+  location             = azurerm_resource_group.main.location
+  resource_group_name  = azurerm_resource_group.main.name
+  storage_account_name = azurerm_storage_account.main.name
+  service_plan_id      = azurerm_service_plan.consumption.id
 
   site_config {
     application_stack {
