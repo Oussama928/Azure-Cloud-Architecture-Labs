@@ -101,13 +101,15 @@ resource "azurerm_key_vault_access_policy" "current_user" {
 }
 
 # Key Vault access policy for GitHub Actions service principal (for CI/CD)
-resource "azurerm_key_vault_access_policy" "github_actions" {
-  key_vault_id = azurerm_key_vault.main.id
-  tenant_id    = data.azurerm_client_config.current.tenant_id
-  object_id    = var.github_actions_sp_object_id
-
-  secret_permissions = ["Get", "List", "Set", "Delete", "Recover"]
-}
+# NOTE: Already created manually via `az keyvault set-policy`.
+# If re-creating from scratch, uncomment this block.
+# resource "azurerm_key_vault_access_policy" "github_actions" {
+#   key_vault_id = azurerm_key_vault.main.id
+#   tenant_id    = data.azurerm_client_config.current.tenant_id
+#   object_id    = var.github_actions_sp_object_id
+# 
+#   secret_permissions = ["Get", "List", "Set", "Delete", "Recover"]
+# }
 
 # Cosmos DB Account (Free tier)
 resource "azurerm_cosmosdb_account" "main" {
@@ -350,6 +352,8 @@ resource "azurerm_linux_function_app" "main" {
   # Application settings with Key Vault references
   app_settings = {
     "AzureWebJobsStorage"                   = azurerm_storage_account.main.primary_connection_string
+    "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING" = azurerm_storage_account.main.primary_connection_string
+    "WEBSITE_CONTENTSHARE"                  = "changetrace-functions"
     "COSMOS_DB_CONNECTION_STRING"           = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.cosmos_connection.name}/)"
     "EVENTGRID_CICD_ENDPOINT"               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_endpoint.name}/)"
     "EVENTGRID_CICD_KEY"                    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_key.name}/)"
