@@ -351,22 +351,22 @@ resource "azurerm_linux_function_app" "main" {
 
   # Application settings with Key Vault references
   app_settings = {
-    "AzureWebJobsStorage"                   = azurerm_storage_account.main.primary_connection_string
+    "AzureWebJobsStorage"                      = azurerm_storage_account.main.primary_connection_string
     "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING" = azurerm_storage_account.main.primary_connection_string
-    "WEBSITE_CONTENTSHARE"                  = "changetrace-functions"
-    "COSMOS_DB_CONNECTION_STRING"           = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.cosmos_connection.name}/)"
-    "EVENTGRID_CICD_ENDPOINT"               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_endpoint.name}/)"
-    "EVENTGRID_CICD_KEY"                    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_key.name}/)"
-    "EVENTGRID_GIT_ENDPOINT"                = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_git_endpoint.name}/)"
-    "EVENTGRID_GIT_KEY"                     = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_git_key.name}/)"
-    "EVENTGRID_ALERT_ENDPOINT"              = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_alert_endpoint.name}/)"
-    "EVENTGRID_ALERT_KEY"                   = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_alert_key.name}/)"
-    "EVENTGRID_ARGO_ENDPOINT"               = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_argo_endpoint.name}/)"
-    "EVENTGRID_ARGO_KEY"                    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_argo_key.name}/)"
-    "APPINSIGHTS_INSTRUMENTATIONKEY"        = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.appinsights_key.name}/)"
-    "APPLICATIONINSIGHTS_CONNECTION_STRING" = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.appinsights_connection_string.name}/)"
-    "PYTHON_ENABLE_WORKER_EXTENSIONS"       = "1"
-    "FUNCTIONS_WORKER_RUNTIME"              = "python"
+    "WEBSITE_CONTENTSHARE"                     = "changetrace-functions"
+    "COSMOS_DB_CONNECTION_STRING"              = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.cosmos_connection.name}/)"
+    "EVENTGRID_CICD_ENDPOINT"                  = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_endpoint.name}/)"
+    "EVENTGRID_CICD_KEY"                       = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_cicd_key.name}/)"
+    "EVENTGRID_GIT_ENDPOINT"                   = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_git_endpoint.name}/)"
+    "EVENTGRID_GIT_KEY"                        = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_git_key.name}/)"
+    "EVENTGRID_ALERT_ENDPOINT"                 = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_alert_endpoint.name}/)"
+    "EVENTGRID_ALERT_KEY"                      = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_alert_key.name}/)"
+    "EVENTGRID_ARGO_ENDPOINT"                  = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_argo_endpoint.name}/)"
+    "EVENTGRID_ARGO_KEY"                       = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.eventgrid_argo_key.name}/)"
+    "APPINSIGHTS_INSTRUMENTATIONKEY"           = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.appinsights_key.name}/)"
+    "APPLICATIONINSIGHTS_CONNECTION_STRING"    = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault.main.vault_uri}secrets/${azurerm_key_vault_secret.appinsights_connection_string.name}/)"
+    "PYTHON_ENABLE_WORKER_EXTENSIONS"          = "1"
+    "FUNCTIONS_WORKER_RUNTIME"                 = "python"
   }
 
   tags = var.common_tags
