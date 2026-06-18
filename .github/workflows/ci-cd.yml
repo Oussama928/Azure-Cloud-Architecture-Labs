@@ -434,7 +434,17 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
+      - name: Check if AKS exists
+        id: aks-check
+        run: |
+          if az aks show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }} &>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Set AKS credentials
+        if: steps.aks-check.outputs.exists == 'true'
         run: |
           az aks get-credentials \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -442,6 +452,7 @@ jobs:
             --overwrite-existing
       
       - name: Deploy to AKS
+        if: steps.aks-check.outputs.exists == 'true'
         run: |
           # Apply Kubernetes manifests
           kubectl apply -f k8s/namespace.yaml
@@ -485,7 +496,17 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       
+      - name: Check if AKS exists
+        id: aks-check
+        run: |
+          if az aks show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }} &>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Run Chaos Experiments
+        if: steps.aks-check.outputs.exists == 'true'
         run: |
           # Start AKS if stopped
           az aks start --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }}
@@ -512,10 +533,12 @@ jobs:
           done
       
       - name: Evaluate Results
+        if: steps.aks-check.outputs.exists == 'true'
         run: |
           python chaos/scripts/evaluate_precision_recall.py --results-dir chaos/results --output evaluation_report.txt
       
       - name: Upload Evaluation Report
+        if: steps.aks-check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: chaos-evaluation-report
@@ -523,7 +546,7 @@ jobs:
           retention-days: 30
       
       - name: Stop AKS
-        if: always()
+        if: always() && steps.aks-check.outputs.exists == 'true'
         run: |
           az aks stop --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }}
 
@@ -532,7 +555,7 @@ jobs:
   # ============================================================
   notify:
     name: Notify
-    needs: [lint-and-test, docker-build, functions-build, terraform-apply-dev, aks-deploy]
+    needs: [lint-and-test, docker-build, functions-build, terraform-apply-dev]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -541,7 +564,7 @@ jobs:
       - name: Send notification
         if: always()
         run: |
-          STATUS="${{ needs.lint-and-test.result }},${{ needs.docker-build.result }},${{ needs.functions-build.result }},${{ needs.terraform-apply-dev.result }},${{ needs.aks-deploy.result }}"
+          STATUS="${{ needs.lint-and-test.result }},${{ needs.docker-build.result }},${{ needs.functions-build.result }},${{ needs.terraform-apply-dev.result }}"
           echo "Pipeline status: $STATUS"
           if [ -n "${{ secrets.NOTIFICATION_WEBHOOK }}" ]; then
             curl -X POST ${{ secrets.NOTIFICATION_WEBHOOK }} \
