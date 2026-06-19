@@ -463,6 +463,7 @@ jobs:
           kubectl apply -f k8s/ingress/
       
       - name: Verify deployment
+        if: steps.aks-check.outputs.exists == 'true'
         run: |
           kubectl rollout status deployment/collector -n changetrace --timeout=300s
           kubectl rollout status deployment/correlation_engine -n changetrace --timeout=300s
