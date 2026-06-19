@@ -131,25 +131,73 @@ class CanaryAnalyzer:
         self, service_name: str, namespace: str, duration_minutes: int
     ) -> Dict[str, List[float]]:
         """Get baseline metrics from stable version."""
-        # TODO: Query Application Insights / Prometheus
-        # Return mock data for now
-        return {
-            "error_rate": np.random.exponential(0.001, 100).tolist(),
-            "latency_p50": np.random.normal(50, 10, 100).tolist(),
-            "latency_p95": np.random.normal(200, 30, 100).tolist(),
-            "latency_p99": np.random.normal(500, 50, 100).tolist(),
-            "availability": [0.999] * 100
-        }
-    
+        if not self._metrics_client:
+            raise ValueError("Metrics client not configured. Set METRICS_CLIENT environment variable.")
+
+        try:
+            # Query Application Insights / Prometheus for baseline metrics
+            # This would query the stable version's metrics
+            # For now, we'll use a placeholder that would be replaced with actual queries
+            
+            # Example query for Application Insights:
+            # requests
+            # | where cloud_RoleName == service_name and cloud_RoleInstance startswith namespace
+            # | where timestamp >= ago(duration_minutes)
+            # | where version == "stable"  # or previous version
+            # | summarize error_rate = countif(success == false) / count(),
+            #           latency_p50 = percentile(duration, 50),
+            #           latency_p95 = percentile(duration, 95),
+            #           latency_p99 = percentile(duration, 99),
+            #           availability = countif(success == true) / count()
+            #   by bin(timestamp, 1m)
+            
+            # For now, return empty lists to indicate no data available
+            # In production, this would query Application Insights / Prometheus
+            return {
+                "error_rate": [],
+                "latency_p50": [],
+                "latency_p95": [],
+                "latency_p99": [],
+                "availability": []
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get baseline metrics: {e}")
+            return {
+                "error_rate": [],
+                "latency_p50": [],
+                "latency_p95": [],
+                "latency_p99": [],
+                "availability": []
+            }
+
     async def _get_canary_metrics(
         self, service_name: str, namespace: str, duration_minutes: int
     ) -> Dict[str, List[float]]:
         """Get canary metrics from new version."""
-        # TODO: Query Application Insights / Prometheus
-        return {
-            "error_rate": np.random.exponential(0.001, 100).tolist(),
-            "latency_p50": np.random.normal(55, 12, 100).tolist(),
-            "latency_p95": np.random.normal(220, 35, 100).tolist(),
-            "latency_p99": np.random.normal(550, 60, 100).tolist(),
-            "availability": [0.998] * 100
-        }
+        if not self._metrics_client:
+            raise ValueError("Metrics client not configured. Set METRICS_CLIENT environment variable.")
+
+        try:
+            # Query Application Insights / Prometheus for canary metrics
+            # This would query the new version's metrics
+            
+            # For now, return empty lists to indicate no data available
+            # In production, this would query Application Insights / Prometheus
+            return {
+                "error_rate": [],
+                "latency_p50": [],
+                "latency_p95": [],
+                "latency_p99": [],
+                "availability": []
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get canary metrics: {e}")
+            return {
+                "error_rate": [],
+                "latency_p50": [],
+                "latency_p95": [],
+                "latency_p99": [],
+                "availability": []
+            }

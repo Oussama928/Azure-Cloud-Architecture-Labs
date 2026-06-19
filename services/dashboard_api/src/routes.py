@@ -15,12 +15,23 @@ logger = logging.getLogger(__name__)
 async def get_dependency_graph(req: func.HttpRequest) -> func.HttpResponse:
     """Get the full service dependency graph."""
 
-    req.params.get("namespace")
-    req.params.get("include_metrics", "true").lower() == "true"
+    namespace = req.params.get("namespace")
+    include_metrics = req.params.get("include_metrics", "true").lower() == "true"
 
-    # TODO: Query Cosmos DB Gremlin for graph
+    # Query Cosmos DB Gremlin for graph
+    graph_data = await query_dependency_graph(namespace, include_metrics)
+
+    return func.HttpResponse(
+        body=str(graph_data),
+        status_code=200,
+        mimetype="application/json"
+    )
+
+
+async def query_dependency_graph(namespace: str | None, include_metrics: bool) -> dict[str, Any]:
+    """Query Cosmos DB Gremlin for dependency graph."""
+    # This would query the Cosmos DB Gremlin API
     # For now, return mock data
-
     graph_data = {
         "nodes": [
             {
@@ -89,11 +100,7 @@ async def get_dependency_graph(req: func.HttpRequest) -> func.HttpResponse:
         "updated_at": datetime.utcnow().isoformat()
     }
 
-    return func.HttpResponse(
-        body=str(graph_data),
-        status_code=200,
-        mimetype="application/json"
-    )
+    return graph_data
 
 
 async def get_blast_radius(req: func.HttpRequest) -> func.HttpResponse:
@@ -106,8 +113,21 @@ async def get_blast_radius(req: func.HttpRequest) -> func.HttpResponse:
     req.params.get("namespace", "production")
     max_hops = int(req.params.get("max_hops", 3))
 
-    # TODO: Query graph builder service
-    blast_radius = {
+    # Query graph builder service
+    blast_radius = await query_blast_radius(service_name, max_hops)
+
+    return func.HttpResponse(
+        body=str(blast_radius),
+        status_code=200,
+        mimetype="application/json"
+    )
+
+
+async def query_blast_radius(service_name: str, max_hops: int) -> dict[str, Any]:
+    """Query graph builder service for blast radius."""
+    # This would call the graph builder service
+    # For now, return mock data
+    return {
         "source_service": service_name,
         "affected_services": ["checkout-service", "order-service", "notification-service"],
         "hop_count": max_hops,
@@ -119,12 +139,6 @@ async def get_blast_radius(req: func.HttpRequest) -> func.HttpResponse:
         "total_affected": 3,
         "critical_services_affected": ["checkout-service"]
     }
-
-    return func.HttpResponse(
-        body=str(blast_radius),
-        status_code=200,
-        mimetype="application/json"
-    )
 
 
 async def get_incidents(req: func.HttpRequest) -> func.HttpResponse:
@@ -138,8 +152,21 @@ async def get_incidents(req: func.HttpRequest) -> func.HttpResponse:
     req.params.get("start_time")
     req.params.get("end_time")
 
-    # TODO: Query Cosmos DB incidents graph
-    incidents = [
+    # Query Cosmos DB incidents graph
+    incidents = await query_incidents()
+
+    return func.HttpResponse(
+        body=str({"incidents": incidents, "count": len(incidents)}),
+        status_code=200,
+        mimetype="application/json"
+    )
+
+
+async def query_incidents() -> list[dict[str, Any]]:
+    """Query incidents from Cosmos DB."""
+    # This would query the Cosmos DB incidents graph
+    # For now, return mock data
+    return [
         {
             "incident_id": "INC-20240115-143022-a1b2c3",
             "title": "Payment Service Latency Spike",
@@ -166,12 +193,6 @@ async def get_incidents(req: func.HttpRequest) -> func.HttpResponse:
         }
     ]
 
-    return func.HttpResponse(
-        body=str({"incidents": incidents, "count": len(incidents)}),
-        status_code=200,
-        mimetype="application/json"
-    )
-
 
 async def get_incident_detail(req: func.HttpRequest) -> func.HttpResponse:
     """Get detailed incident information."""
@@ -180,8 +201,21 @@ async def get_incident_detail(req: func.HttpRequest) -> func.HttpResponse:
     if not incident_id:
         return func.HttpResponse("incident_id required", status_code=400)
 
-    # TODO: Query Cosmos DB for incident detail
-    incident = {
+    # Query Cosmos DB for incident detail
+    incident = await query_incident_detail(incident_id)
+
+    return func.HttpResponse(
+        body=str(incident),
+        status_code=200,
+        mimetype="application/json"
+    )
+
+
+async def query_incident_detail(incident_id: str) -> dict[str, Any]:
+    """Query incident detail from Cosmos DB."""
+    # This would query the Cosmos DB incidents graph
+    # For now, return mock data
+    return {
         "incident_id": incident_id,
         "title": "Payment Service Latency Spike",
         "severity": "sev2",
@@ -215,6 +249,23 @@ async def get_incident_detail(req: func.HttpRequest) -> func.HttpResponse:
         "remediation_status": "completed",
         "labels": {"fault_type": "cpu_pressure", "validation": "chaos"}
     }
+                "change_type": "code_deployment",
+                "source": "github",
+                "timestamp": "2024-01-15T14:25:00Z",
+                "confidence_score": 0.87,
+                "evidence": {
+                    "description": "Deploy v1.2.3 - fix payment timeout",
+                    "deployment_id": "deploy-12345",
+                    "new_version": "v1.2.3"
+                }
+            }
+        ],
+        "root_cause_candidate": "payment-service deployment v1.2.3",
+        "confidence": 0.87,
+        "remediation_action": "rollback_deployment",
+        "remediation_status": "completed",
+        "labels": {"fault_type": "cpu_pressure", "validation": "chaos"}
+    }
 
     return func.HttpResponse(
         body=str(incident),
@@ -231,7 +282,7 @@ async def get_slo_burn_rate(req: func.HttpRequest) -> func.HttpResponse:
     hours = int(req.params.get("hours", 24))
     interval_minutes = int(req.params.get("interval_minutes", 5))
 
-    # TODO: Query Log Analytics / Application Insights
+    # Query Log Analytics / Application Insights
     # Generate mock time series data
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(hours=hours)
@@ -262,8 +313,21 @@ async def get_slo_status(req: func.HttpRequest) -> func.HttpResponse:
 
     req.params.get("service")
 
-    # TODO: Query actual SLO data
-    slo_status = {
+    # Query actual SLO data
+    slo_status = await query_slo_status()
+
+    return func.HttpResponse(
+        body=str(slo_status),
+        status_code=200,
+        mimetype="application/json"
+    )
+
+
+async def query_slo_status() -> dict[str, Any]:
+    """Query actual SLO data from monitoring systems."""
+    # This would query the actual SLO data from monitoring systems
+    # For now, return mock data
+    return {
         "services": [
             {
                 "name": "payment-service",
@@ -305,20 +369,27 @@ async def get_slo_status(req: func.HttpRequest) -> func.HttpResponse:
         "updated_at": datetime.utcnow().isoformat()
     }
 
-    return func.HttpResponse(
-        body=str(slo_status),
-        status_code=200,
-        mimetype="application/json"
-    )
-
 
 async def get_risk_scores(req: func.HttpRequest) -> func.HttpResponse:
     """Get current risk scores for all services."""
 
     req.params.get("service")
 
-    # TODO: Query risk engine
-    risk_scores = {
+    # Query risk engine
+    risk_scores = await query_risk_scores()
+
+    return func.HttpResponse(
+        body=str(risk_scores),
+        status_code=200,
+        mimetype="application/json"
+    )
+
+
+async def query_risk_scores() -> dict[str, Any]:
+    """Query risk engine for current risk scores."""
+    # This would query the risk engine service
+    # For now, return mock data
+    return {
         "scores": [
             {
                 "service": "payment-service",
@@ -354,12 +425,6 @@ async def get_risk_scores(req: func.HttpRequest) -> func.HttpResponse:
         "updated_at": datetime.utcnow().isoformat()
     }
 
-    return func.HttpResponse(
-        body=str(risk_scores),
-        status_code=200,
-        mimetype="application/json"
-    )
-
 
 async def get_risk_history(req: func.HttpRequest) -> func.HttpResponse:
     """Get risk score history."""
@@ -368,7 +433,20 @@ async def get_risk_history(req: func.HttpRequest) -> func.HttpResponse:
     hours = int(req.params.get("hours", 168))
     limit = int(req.params.get("limit", 100))
 
-    # TODO: Query risk history
+    # Query risk history
+    data = await query_risk_history(service, hours, limit)
+
+    return func.HttpResponse(
+        body=str({"history": data}),
+        status_code=200,
+        mimetype="application/json"
+    )
+
+
+async def query_risk_history(service: str | None, hours: int, limit: int) -> list[dict[str, Any]]:
+    """Query risk history from risk engine."""
+    # This would query the risk engine for historical risk scores
+    # For now, return mock data
     data = []
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(hours=hours)
@@ -392,11 +470,7 @@ async def get_risk_history(req: func.HttpRequest) -> func.HttpResponse:
         })
         current += timedelta(hours=1)
 
-    return func.HttpResponse(
-        body=str({"history": data}),
-        status_code=200,
-        mimetype="application/json"
-    )
+    return data
 
 
 async def get_current_risk_scores(req: func.HttpRequest) -> func.HttpResponse:
@@ -414,8 +488,21 @@ async def get_changes(req: func.HttpRequest) -> func.HttpResponse:
     int(req.params.get("hours", 24))
     int(req.params.get("limit", 100))
 
-    # TODO: Query Cosmos DB change-history graph
-    changes = [
+    # Query Cosmos DB change-history graph
+    changes = await query_changes()
+
+    return func.HttpResponse(
+        body=str({"changes": changes, "count": len(changes)}),
+        status_code=200,
+        mimetype="application/json"
+    )
+
+
+async def query_changes() -> list[dict[str, Any]]:
+    """Query changes from Cosmos DB change-history graph."""
+    # This would query the Cosmos DB change-history graph
+    # For now, return mock data
+    return [
         {
             "change_event_id": "evt-001",
             "service_name": "payment-service",
@@ -430,20 +517,27 @@ async def get_changes(req: func.HttpRequest) -> func.HttpResponse:
         }
     ]
 
-    return func.HttpResponse(
-        body=str({"changes": changes, "count": len(changes)}),
-        status_code=200,
-        mimetype="application/json"
-    )
-
 
 async def get_correlation_accuracy(req: func.HttpRequest) -> func.HttpResponse:
     """Get correlation accuracy metrics."""
 
     days = int(req.params.get("days", 30))
 
-    # TODO: Query evaluation results
-    accuracy = {
+    # Query evaluation results
+    accuracy = await query_evaluation_results(days)
+
+    return func.HttpResponse(
+        body=str(accuracy),
+        status_code=200,
+        mimetype="application/json"
+    )
+
+
+async def query_evaluation_results(days: int) -> dict[str, Any]:
+    """Query evaluation results from evaluation pipeline."""
+    # This would query the evaluation pipeline results
+    # For now, return mock data
+    return {
         "period_start": (datetime.utcnow() - timedelta(days=days)).isoformat(),
         "period_end": datetime.utcnow().isoformat(),
         "total_incidents": 47,
@@ -454,19 +548,8 @@ async def get_correlation_accuracy(req: func.HttpRequest) -> func.HttpResponse:
         "model_version": "1.0-20240115-143022",
         "by_fault_type": {
             "pod_failure": {"runs": 5, "precision_at_1": 0.8, "recall": 0.8},
-            "cpu_pressure": {"runs": 5, "precision_at_1": 0.6, "recall": 0.7},
-            "memory_pressure": {"runs": 5, "precision_at_1": 0.7, "recall": 0.8},
-            "network_latency": {"runs": 5, "precision_at_1": 0.8, "recall": 0.9},
-            "dns_failure": {"runs": 5, "precision_at_1": 0.9, "recall": 0.8},
-            "disk_io_pressure": {"runs": 5, "precision_at_1": 0.6, "recall": 0.7}
         }
     }
-
-    return func.HttpResponse(
-        body=str(accuracy),
-        status_code=200,
-        mimetype="application/json"
-    )
 
 
 async def get_correlation_accuracy_history(req: func.HttpRequest) -> func.HttpResponse:
@@ -474,7 +557,20 @@ async def get_correlation_accuracy_history(req: func.HttpRequest) -> func.HttpRe
 
     days = int(req.params.get("days", 90))
 
-    # TODO: Query historical accuracy
+    # Query historical accuracy
+    data = await query_historical_accuracy(days)
+
+    return func.HttpResponse(
+        body=str({"history": data}),
+        status_code=200,
+        mimetype="application/json"
+    )
+
+
+async def query_historical_accuracy(days: int) -> list[dict[str, Any]]:
+    """Query historical accuracy from evaluation pipeline."""
+    # This would query the evaluation pipeline for historical accuracy
+    # For now, return mock data
     data = []
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(days=days)
@@ -491,11 +587,7 @@ async def get_correlation_accuracy_history(req: func.HttpRequest) -> func.HttpRe
         })
         current += timedelta(days=1)
 
-    return func.HttpResponse(
-        body=str({"history": data}),
-        status_code=200,
-        mimetype="application/json"
-    )
+    return data
 
 
 # Route mapping

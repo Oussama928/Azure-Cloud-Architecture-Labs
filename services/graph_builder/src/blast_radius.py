@@ -5,7 +5,14 @@ Computes blast radius from a service using graph traversal.
 """
 
 import logging
+import os
 from typing import Any, Dict, List, Optional, Set
+
+from gremlin_python.driver import client, serializer
+from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
+from gremlin_python.process.anonymous_traversal import traversal
+from gremlin_python.process.graph_traversal import __
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +20,52 @@ logger = logging.getLogger(__name__)
 class BlastRadiusCalculator:
     """Calculates blast radius from a service using graph traversal."""
     
-    def __init__(self, gremlin_client):
+    def __init__(self, gremlin_client=None):
         self.gremlin_client = gremlin_client
+        self._connection = None
+        self._g = None
+    
+    async def _connect(self):
+        """Establish connection to Cosmos DB Gremlin."""
+        if self._g is not None:
+            return
+            
+        endpoint = os.getenv("COSMOS_DB_ENDPOINT")
+        key = os.getenv("COSMOS_DB_KEY")
+        database = os.getenv("COSMOS_DB_DATABASE", "changetrace-graph")
+        graph = os.getenv("COSMOS_DB_GRAPH", "dependency-graph")
+        
+        if not endpoint or not key:
+            raise ValueError("Cosmos DB credentials not configured. Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY environment variables.")
+        
+        parsed = urllib.parse.urlparse(endpoint)
+        host = parsed.netloc
+        
+        self._client = client.Client(
+            f"wss://{host}/gremlin",
+            "g",
+            username=f"/dbs/{database}/colls/{graph}",
+            password=key,
+            message_serializer=serializer.GraphSONSerializersV2d0()
+        )
+        
+        self._connection = DriverRemoteConnection(
+            f"wss://{host}/gremlin",
+            "g",
+            username=f"/dbs/{database}/colls/{graph}",
+            password=key
+        )
+        
+        self._g = traversal().withRemote(self._connection)
+        logger.info("Connected to Cosmos DB Gremlin")
+    
+    async def _close(self):
+        """Close connections."""
+        if self._client:
+            self._client.close()
+        if self._connection:
+            self._connection.close()
+        self._g = None
     
     async def compute_blast_radius(
         self,
@@ -30,8 +81,7 @@ class BlastRadiusCalculator:
         """
         logger.info(f"Computing blast radius for {service_name} (max_hops: {max_hops})")
         
-        if not self.gremlin_client:
-            return await self._mock_blast_radius(service_name, max_hops)
+        await self._connect()
         
         try:
             # Query for affected services (reverse dependencies)
@@ -44,8 +94,11 @@ class BlastRadiusCalculator:
             .values('serviceName')
             """
             
-            result = self.gremlin_client.execute_query(affected_query)
-            affected_services = [r for r in result if r != service_name]
+            result_set = self._client.submit(affected_query)
+            affected_services = list(result_set)
+            
+            # Remove the source service itself
+            affected_services = [s for s in affected_services if s != service_name]
             
             result_data = {
                 "source_service": service_name,
@@ -66,7 +119,9 @@ class BlastRadiusCalculator:
             
         except Exception as e:
             logger.error(f"Blast radius computation failed: {e}")
-            return await self._mock_blast_radius(service_name, max_hops)
+            raise
+        finally:
+            await self._close()
     
     async def _get_dependency_paths(
         self,
@@ -75,9 +130,6 @@ class BlastRadiusCalculator:
         max_hops: int
     ) -> List[List[str]]:
         """Get dependency paths from source to each target."""
-        
-        if not self.gremlin_client:
-            return []
         
         paths = []
         
@@ -93,8 +145,8 @@ class BlastRadiusCalculator:
             """
             
             try:
-                result = self.gremlin_client.execute_query(query)
-                for path in result:
+                result_set = self._client.submit(query)
+                for path in result_set:
                     if isinstance(path, list):
                         paths.append(path)
             except Exception as e:
@@ -105,9 +157,6 @@ class BlastRadiusCalculator:
     async def _identify_critical_services(self, services: List[str]) -> List[str]:
         """Identify critical services based on dependent count."""
         
-        if not self.gremlin_client:
-            return []
-        
         critical = []
         
         for service in services:
@@ -117,8 +166,8 @@ class BlastRadiusCalculator:
             """
             
             try:
-                result = self.gremlin_client.execute_query(query)
-                count = list(result)[0] if result else 0
+                result_set = self._client.submit(query)
+                count = list(result_set)[0] if result_set else 0
                 
                 if count > 3:  # Threshold for critical
                     critical.append(service)
@@ -127,56 +176,9 @@ class BlastRadiusCalculator:
         
         return critical
     
-    async def _mock_blast_radius(self, service_name: str, max_hops: int) -> Dict[str, Any]:
-        """Return mock blast radius for development."""
-        
-        # Mock dependency graph
-        mock_graph = {
-            "api-gateway": ["auth-service", "payment-service", "order-service"],
-            "auth-service": [],
-            "payment-service": ["fraud-service", "database-primary"],
-            "fraud-service": ["ml-model-service", "feature-store"],
-            "ml-model-service": ["redis-cache"],
-            "feature-store": ["redis-cache"],
-            "redis-cache": [],
-            "database-primary": ["database-replica"],
-            "database-replica": [],
-            "order-service": ["inventory-service", "notification-service"],
-            "inventory-service": ["database-primary"],
-            "notification-service": ["message-queue"],
-            "message-queue": [],
-        }
-        
-        affected = set()
-        paths = []
-        
-        def traverse(current: str, path: List[str], hops: int):
-            if hops > max_hops:
-                return
-            
-            for dep in mock_graph.get(current, []):
-                new_path = path + [dep]
-                if dep != service_name:
-                    affected.add(dep)
-                    paths.append(new_path)
-                traverse(dep, new_path, hops + 1)
-        
-        traverse(service_name, [service_name], 0)
-        
-        # Remove source from affected
-        affected.discard(service_name)
-        
-        # Identify critical services (those with many dependents)
-        critical = [s for s in affected if len(mock_graph.get(s, [])) > 2]
-        
-        return {
-            "source_service": service_name,
-            "affected_services": list(affected),
-            "hop_count": max_hops,
-            "paths": paths,
-            "total_affected": len(affected),
-            "critical_services_affected": critical
-        }
+    async def close(self):
+        """Close connections."""
+        await self._close()
 
 
 async def compute_blast_radius(

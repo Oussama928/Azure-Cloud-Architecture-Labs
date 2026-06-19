@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: changetrace
+  labels:
+    name: changetrace
+    environment: production
+    istio-injection: disabled

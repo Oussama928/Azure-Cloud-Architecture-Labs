@@ -180,15 +180,47 @@ async def _restart_workload(params: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _revert_config(params: dict[str, Any]) -> dict[str, Any]:
-    """Revert ConfigMap/Secret to previous version."""
+    """Revert ConfigMap/Secret to previous version using Kubernetes API."""
 
-    # TODO: Implement config revert via Kubernetes API
-    # This would require tracking config versions in change history
+    service = params.get("service")
+    namespace = params.get("namespace", "production")
+    config_name = params.get("config_name")
+    config_type = params.get("config_type", "configmap")  # configmap or secret
 
-    return {
-        "success": False,
-        "error": "Config revert not yet implemented"
-    }
+    if not service or not config_name:
+        return {"success": False, "error": "service and config_name are required"}
+
+    try:
+        from kubernetes import client, config as k8s_config
+
+        if not hasattr(_revert_config, "_initialized"):
+            if os.getenv("KUBERNETES_SERVICE_HOST"):
+                k8s_config.load_incluster_config()
+            else:
+                k8s_config.load_kube_config()
+            _revert_config._initialized = True
+
+        core_v1 = client.CoreV1Api()
+
+        if config_type == "configmap":
+            # Get current ConfigMap
+            current = core_v1.read_namespaced_config_map(config_name, namespace)
+
+            # Get previous version from annotations or labels
+            # In production, you'd store previous versions in a separate store
+            # For now, we'll use the kubectl rollout undo approach for the owning deployment
+            logger.warning("ConfigMap revert not fully implemented - would need version history")
+            return {"success": False, "error": "ConfigMap revert requires version history tracking"}
+
+        elif config_type == "secret":
+            logger.warning("Secret revert not implemented")
+            return {"success": False, "error": "Secret revert not implemented"}
+
+        return {"success": False, "error": f"Unknown config type: {config_type}"}
+
+    except Exception as e:
+        logger.error(f"Config revert failed: {e}")
+        return {"success": False, "error": str(e)}
 
 
 async def _scale_up(params: dict[str, Any]) -> dict[str, Any]:
@@ -202,23 +234,31 @@ async def _scale_up(params: dict[str, Any]) -> dict[str, Any]:
         return {"success": False, "error": "service is required"}
 
     try:
-        import subprocess
+        from kubernetes import client, config as k8s_config
 
-        result = subprocess.run(
-            ["kubectl", "scale", "deployment", service, f"--replicas={replicas}", "-n", namespace],
-            capture_output=True, text=True, timeout=30
+        if not hasattr(_scale_up, "_initialized"):
+            if os.getenv("KUBERNETES_SERVICE_HOST"):
+                k8s_config.load_incluster_config()
+            else:
+                k8s_config.load_kube_config()
+            _scale_up._initialized = True
+
+        apps_v1 = client.AppsV1Api()
+
+        # Scale deployment
+        result = apps_v1.patch_namespaced_deployment_scale(
+            name=service,
+            namespace=namespace,
+            body={"spec": {"replicas": replicas}}
         )
 
-        if result.returncode == 0:
-            return {
-                "success": True,
-                "method": "kubectl_scale",
-                "service": service,
-                "namespace": namespace,
-                "replicas": replicas
-            }
-        else:
-            return {"success": False, "error": f"kubectl scale failed: {result.stderr}"}
+        return {
+            "success": True,
+            "method": "k8s_api",
+            "service": service,
+            "namespace": namespace,
+            "replicas": replicas
+        }
 
     except Exception as e:
         logger.error(f"Scale up failed: {e}")

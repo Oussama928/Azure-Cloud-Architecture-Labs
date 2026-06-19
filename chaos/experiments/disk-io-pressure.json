@@ -1,0 +1,81 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "experimentName": {
+      "type": "string",
+      "defaultValue": "changetrace-disk-io-pressure"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus"
+    },
+    "targetResourceId": {
+      "type": "string"
+    },
+    "targetServiceLabel": {
+      "type": "string",
+      "defaultValue": "app=payments"
+    },
+    "durationMinutes": {
+      "type": "int",
+      "defaultValue": 5
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Chaos/experiments",
+      "apiVersion": "2023-11-01",
+      "name": "[parameters('experimentName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "steps": [
+          {
+            "name": "inject-disk-io-pressure",
+            "branches": [
+              {
+                "name": "disk-io-pressure-branch",
+                "actions": [
+                  {
+                    "name": "disk-io-stress",
+                    "type": "continuous",
+                    "parameters": [
+                      {
+                        "key": "faultType",
+                        "value": "DiskPressure"
+                      },
+                      {
+                        "key": "selector",
+                        "value": "{\"namespaces\":[\"default\"],\"labelSelectors\":{\"app\":\"[parameters('targetServiceLabel')]\"}}"
+                      },
+                      {
+                        "key": "duration",
+                        "value": "[concat('PT', string(parameters('durationMinutes')), 'M')]"
+                      }
+                    ],
+                    "duration": "[concat('PT', string(parameters('durationMinutes')), 'M')]"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "targets": [
+          {
+            "type": "Microsoft.Chaos/targets",
+            "id": "[parameters('targetResourceId')]"
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "experimentId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Chaos/experiments', parameters('experimentName'))]"
+    }
+  }
+}

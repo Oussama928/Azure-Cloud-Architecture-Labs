@@ -113,11 +113,73 @@ async def _send_email_notification(
     reject_url: str,
     expires_at: str | None
 ) -> bool:
-    """Send email notification (placeholder - integrate with SendGrid, etc.)."""
+    """Send email notification via SendGrid."""
+    api_key = os.getenv("SENDGRID_API_KEY")
+    from_email = os.getenv("SENDGRID_FROM_EMAIL", "changetrace@company.com")
 
-    # TODO: Implement actual email sending via SendGrid, Azure Communication Services, etc.
-    logger.info("Email notification would be sent here (not implemented)")
-    return False
+    if not api_key:
+        logger.warning("SENDGRID_API_KEY not configured, skipping email notification")
+        return False
+
+    notification_type = activity_input.get("notification_type", "approval_request")
+    details = activity_input.get("details", {})
+    top_candidate = details.get("top_candidate", {})
+
+    if notification_type == "approval_request":
+        subject = f"🚨 Approval Required: {activity_input.get('title', 'Incident Approval')}"
+        html_content = f"""
+        <h2>🚨 {activity_input.get('title', 'Incident Approval Required')}</h2>
+        <p>{activity_input.get('description', '')}</p>
+        <table>
+            <tr><td><strong>Incident ID</strong></td><td>{activity_input.get('incident_id', 'N/A')}</td></tr>
+            <tr><td><strong>Affected Service</strong></td><td>{details.get('affected_service', 'N/A')}</td></tr>
+            <tr><td><strong>Top Candidate</strong></td><td>{top_candidate.get('service_name', 'N/A')} ({top_candidate.get('change_type', 'N/A')})</td></tr>
+            <tr><td><strong>Confidence</strong></td><td>{details.get('confidence', 0)*100:.1f}%</td></tr>
+            <tr><td><strong>Recommended Action</strong></td><td>{details.get('recommended_action', 'rollback_deployment').replace('_', ' ').title()}</td></tr>
+            <tr><td><strong>Blast Radius</strong></td><td>{details.get('blast_radius', {}).get('total_services_affected', 0)} services</td></tr>
+            <tr><td><strong>Expires</strong></td><td>{expires_at or 'N/A'}</td></tr>
+        </table>
+        <p><strong>Recommended Action:</strong> {details.get('recommended_action', 'rollback_deployment').replace('_', ' ').title()}</p>
+        <p>Parameters: <pre>{json.dumps(details.get('remediation_params', {}), indent=2)}</pre></p>
+        <p>
+            <a href="{approve_url}" style="background-color: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">✅ Approve</a>
+            <a href="{reject_url}" style="background-color: #dc3545; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; margin-left: 10px;">❌ Reject</a>
+        </p>
+        <p><small>Expires: {expires_at or 'N/A'}</small></p>
+        """
+    else:
+        subject = f"⚠️ ESCALATION: {activity_input.get('title', 'Incident Approval Timeout')}"
+        html_content = f"""
+        <h2>⚠️ ESCALATION: Incident Approval Timeout</h2>
+        <p>Primary approval expired for workflow {activity_input.get('workflow_id')}. Escalated to secondary on-call.</p>
+        <table>
+            <tr><td><strong>Incident ID</strong></td><td>{activity_input.get('incident_id', 'N/A')}</td></tr>
+            <tr><td><strong>Original Approver</strong></td><td>{activity_input.get('original_approver', 'primary_oncall')}</td></tr>
+            <tr><td><strong>Escalation Level</strong></td><td>{activity_input.get('escalation_level', 1)}</td></tr>
+            <tr><td><strong>Escalation Target</strong></td><td>{activity_input.get('escalation_target', 'secondary_oncall')}</td></tr>
+            <tr><td><strong>Expires</strong></td><td>{expires_at or 'N/A'}</td></tr>
+        </table>
+        <p><a href="{activity_input.get('approval_url', '#')}" style="background-color: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">✅ Approve (Escalated)</a></p>
+        """
+
+    try:
+        from sendgrid import SendGridAPIClient
+        from sendgrid.helpers.mail import Mail
+
+        message = Mail(
+            from_email=from_email,
+            to_emails=os.getenv("ONCALL_EMAIL", "oncall@company.com"),
+            subject=subject,
+            html_content=html_content
+        )
+
+        sg = SendGridAPIClient(api_key)
+        response = sg.send(message)
+        logger.info(f"Email notification sent: {response.status_code}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send email notification: {e}")
+        return False
 
 
 def _build_approval_card(

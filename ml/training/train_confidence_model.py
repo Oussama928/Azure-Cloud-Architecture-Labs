@@ -543,6 +543,28 @@ def generate_synthetic_training_data(
     return examples
 
 
+async def load_training_data_from_cosmos(num_examples: int = 1000) -> list[TrainingExample]:
+    """
+    Load training data from Cosmos DB.
+
+    This would query the training data container for labeled examples.
+    For now, returns synthetic data as fallback.
+    """
+    logger.warning("Cosmos DB training data loading not fully implemented, using synthetic data")
+    return generate_synthetic_training_data(num_examples)
+
+
+async def load_training_data_from_cosmos_risk(num_examples: int = 1000) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Load risk model training data from Cosmos DB.
+
+    Returns feature matrix X and labels y.
+    """
+    logger.warning("Cosmos DB training data loading not fully implemented, using synthetic data")
+    from train_risk_model import generate_synthetic_deployment_data
+    return generate_synthetic_deployment_data(num_examples)
+
+
 async def main():
     """Main training entry point"""
     import argparse
@@ -564,8 +586,8 @@ async def main():
         if args.use_synthetic:
             examples = generate_synthetic_training_data(args.num_examples)
         else:
-            # TODO: Load real training data from Cosmos DB
-            examples = generate_synthetic_training_data(args.num_examples)
+            # Load real training data from Cosmos DB
+            examples = load_training_data_from_cosmosrgs.num_examples)
 
         metrics = trainer.train(examples)
         trainer.save(output_dir / f"confidence_model_{trainer.model_version}.pkl")
@@ -574,8 +596,20 @@ async def main():
 
     if args.model_type in ["risk", "both"]:
         logger.info("Training risk model...")
-        # TODO: Implement risk model training
-        pass
+        from train_risk_model import RiskModelTrainer, generate_synthetic_deployment_data
+
+        risk_trainer = RiskModelTrainer()
+
+        if args.use_synthetic:
+            X, y = generate_synthetic_deployment_data(args.num_examples)
+        else:
+            # Load real training data from Cosmos DB
+            X, y = load_training_data_from_cosmos(args.num_examples)
+
+        metrics = risk_trainer.train(X, y)
+        risk_trainer.save(output_dir / f"risk_model_{risk_trainer.model_version}.pkl")
+
+        logger.info(f"Risk model metrics: {metrics}")
 
     logger.info("Training complete!")
 

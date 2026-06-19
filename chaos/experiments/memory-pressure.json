@@ -1,0 +1,89 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "experimentName": {
+      "type": "string",
+      "defaultValue": "changetrace-memory-pressure"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus"
+    },
+    "targetResourceId": {
+      "type": "string"
+    },
+    "targetServiceLabel": {
+      "type": "string",
+      "defaultValue": "app=payments"
+    },
+    "memoryPercent": {
+      "type": "int",
+      "defaultValue": 80
+    },
+    "durationMinutes": {
+      "type": "int",
+      "defaultValue": 5
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Chaos/experiments",
+      "apiVersion": "2023-11-01",
+      "name": "[parameters('experimentName')]",
+      "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "steps": [
+          {
+            "name": "inject-memory-pressure",
+            "branches": [
+              {
+                "name": "memory-pressure-branch",
+                "actions": [
+                  {
+                    "name": "memory-stress",
+                    "type": "continuous",
+                    "parameters": [
+                      {
+                        "key": "faultType",
+                        "value": "MemoryPressure"
+                      },
+                      {
+                        "key": "selector",
+                        "value": "{\"namespaces\":[\"default\"],\"labelSelectors\":{\"app\":\"[parameters('targetServiceLabel')]\"}}"
+                      },
+                      {
+                        "key": "memoryPercent",
+                        "value": "[string(parameters('memoryPercent'))]"
+                      },
+                      {
+                        "key": "duration",
+                        "value": "[concat('PT', string(parameters('durationMinutes')), 'M')]"
+                      }
+                    ],
+                    "duration": "[concat('PT', string(parameters('durationMinutes')), 'M')]"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "targets": [
+          {
+            "type": "Microsoft.Chaos/targets",
+            "id": "[parameters('targetResourceId')]"
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "experimentId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Chaos/experiments', parameters('experimentName'))]"
+    }
+  }
+}

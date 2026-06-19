@@ -11,8 +11,11 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set
 
 import azure.functions as func
-from azure.cosmos import CosmosClient
-from azure.identity import DefaultAzureCredential
+from gremlin_python.driver import client, serializer
+from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
+from gremlin_python.process.anonymous_traversal import traversal
+from gremlin_python.process.graph_traversal import __
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +29,46 @@ class GraphBuilder:
         self.database_name = os.getenv("COSMOS_DB_DATABASE", "changetrace-graph")
         self.graph_name = os.getenv("COSMOS_DB_GRAPH", "dependency-graph")
         
-        if self.cosmos_endpoint and self.cosmos_key:
-            self.client = CosmosClient(self.cosmos_endpoint, self.cosmos_key)
-            self.database = self.client.get_database_client(self.database_name)
-            self.graph = self.database.get_graph_client(self.graph_name)
-        else:
-            self.client = None
-            logger.warning("Cosmos DB not configured")
+        self._gremlin_client = None
+        self._connection = None
+        self._g = None
+    
+    async def _connect(self):
+        """Establish Gremlin connection."""
+        if self._g is not None:
+            return
+            
+        if not self.cosmos_endpoint or not self.cosmos_key:
+            raise ValueError("Cosmos DB credentials not configured")
+        
+        parsed = urllib.parse.urlparse(self.cosmos_endpoint)
+        host = parsed.netloc
+        
+        self._gremlin_client = client.Client(
+            f"wss://{host}/gremlin",
+            "g",
+            username=f"/dbs/{self.database_name}/colls/{self.graph_name}",
+            password=self.cosmos_key,
+            message_serializer=serializer.GraphSONSerializersV2d0()
+        )
+        
+        self._connection = DriverRemoteConnection(
+            f"wss://{host}/gremlin",
+            "g",
+            username=f"/dbs/{self.database_name}/colls/{self.graph_name}",
+            password=self.cosmos_key
+        )
+        
+        self._g = traversal().withRemote(self._connection)
+        logger.info("Connected to Cosmos DB Gremlin")
+    
+    async def _close(self):
+        """Close connections."""
+        if self._gremlin_client:
+            self._gremlin_client.close()
+        if self._connection:
+            self._connection.close()
+        self._g = None
     
     async def build_from_traces(
         self,
@@ -47,46 +83,74 @@ class GraphBuilder:
         """
         logger.info(f"Building graph from traces (lookback: {lookback_hours}h)")
         
-        # TODO: Query Application Insights for traces
-        # This would use the Azure Monitor Query API
-        # For now, return mock structure
+        await self._connect()
         
-        edges = await self._extract_edges_from_traces(lookback_hours)
-        
-        # Update graph in Cosmos DB
-        updated = await self._update_graph(edges)
-        
-        return {
-            "edges_processed": len(edges),
-            "vertices_updated": updated["vertices"],
-            "edges_updated": updated["edges"],
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        try:
+            edges = await self._extract_edges_from_traces(lookback_hours, min_spans)
+            updated = await self._update_graph(edges)
+            
+            return {
+                "edges_processed": len(edges),
+                "vertices_updated": updated["vertices"],
+                "edges_updated": updated["edges"],
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        finally:
+            await self._close()
     
-    async def _extract_edges_from_traces(self, lookback_hours: int) -> List[Dict[str, Any]]:
+    async def _extract_edges_from_traces(
+        self, 
+        lookback_hours: int, 
+        min_spans: int
+    ) -> List[Dict[str, Any]]:
         """Extract service-to-service edges from trace data."""
         
-        # This would query Log Analytics:
-        # traces
-        # | where timestamp > ago({lookback_hours}h)
-        # | where cloud_RoleName != ""
-        # | summarize count() by cloud_RoleName, tostring(customDimensions['peer.service'])
-        # | where count_ > {min_spans}
-        
-        # Mock edges for now
-        return [
-            {"source": "api-gateway", "target": "auth-service", "count": 1500, "latency_p99": 45},
-            {"source": "api-gateway", "target": "payment-service", "count": 800, "latency_p99": 120},
-            {"source": "payment-service", "target": "fraud-service", "count": 600, "latency_p99": 200},
-            {"source": "payment-service", "target": "inventory-service", "count": 400, "latency_p99": 80},
-            {"source": "order-service", "target": "payment-service", "count": 300, "latency_p99": 150},
-        ]
+        if not self._logs_client:
+            raise ValueError("Log Analytics workspace not configured. Set LOG_ANALYTICS_WORKSPACE_ID environment variable.")
+
+        try:
+            credential = DefaultAzureCredential()
+            self._logs_client = LogsQueryClient(credential)
+
+            # KQL query for trace ingestion
+            query = f"""
+            traces
+            | where timestamp > ago({lookback_hours}h)
+            | where cloud_RoleName != ""
+            | extend source = cloud_RoleName
+            | extend target = tostring(customDimensions['peer.service'])
+            | where isnotempty(target)
+            | summarize call_count = count() by source, target
+            | where call_count >= {min_spans}
+            | project source, target, call_count
+            """
+
+            response = self._logs_client.query_workspace(
+                workspace_id=self._workspace_id,
+                query=query,
+                timespan=timedelta(hours=lookback_hours)
+            )
+
+            edges = []
+            if response.tables:
+                for table in response.tables:
+                    for row in table.rows:
+                        edges.append({
+                            "source": row[0],
+                            "target": row[1],
+                            "count": row[2],
+                            "latency_p99": 0,  # Would need additional query
+                            "timestamp": datetime.utcnow().isoformat()
+                        })
+
+            return edges
+
+        except Exception as e:
+            logger.error(f"Trace ingestion failed: {e}")
+            raise
     
     async def _update_graph(self, edges: List[Dict[str, Any]]) -> Dict[str, int]:
         """Update graph vertices and edges in Cosmos DB Gremlin."""
-        
-        if not self.graph:
-            return {"vertices": 0, "edges": 0}
         
         vertices_updated = 0
         edges_updated = 0
@@ -106,7 +170,7 @@ class GraphBuilder:
                 property('updatedAt', '{datetime.utcnow().isoformat()}').
                 property('criticality', 'medium')
                 """
-                self.graph.execute_query(query)
+                self._gremlin_client.submit(query).all().result()
                 vertices_updated += 1
             except Exception as e:
                 logger.error(f"Failed to upsert vertex {service}: {e}")
@@ -125,7 +189,7 @@ class GraphBuilder:
                 property('latencyP99', {edge['latency_p99']}).
                 property('updatedAt', '{datetime.utcnow().isoformat()}')
                 """
-                self.graph.execute_query(query)
+                self._gremlin_client.submit(query).all().result()
                 edges_updated += 1
             except Exception as e:
                 logger.error(f"Failed to upsert edge {edge['source']}->{edge['target']}: {e}")
@@ -142,8 +206,7 @@ class GraphBuilder:
         
         Returns all services that depend on the given service (reverse dependencies).
         """
-        if not self.graph:
-            return {"affected_services": [], "paths": [], "hop_count": max_hops}
+        await self._connect()
         
         try:
             query = f"""
@@ -156,8 +219,8 @@ class GraphBuilder:
             by('serviceName')
             """
             
-            result = self.graph.execute_query(query)
-            paths = list(result)
+            result_set = self._gremlin_client.submit(query)
+            paths = list(result_set.all().result())
             
             # Extract unique affected services
             affected = set()
@@ -176,6 +239,8 @@ class GraphBuilder:
         except Exception as e:
             logger.error(f"Blast radius computation failed: {e}")
             return {"affected_services": [], "paths": [], "error": str(e)}
+        finally:
+            await self._close()
     
     async def get_service_dependencies(
         self,
@@ -184,8 +249,7 @@ class GraphBuilder:
     ) -> Dict[str, List[str]]:
         """Get direct dependencies for a service."""
         
-        if not self.graph:
-            return {"upstream": [], "downstream": []}
+        await self._connect()
         
         try:
             upstream = []
@@ -193,18 +257,20 @@ class GraphBuilder:
             
             if direction in ["in", "both"]:
                 query = f"g.V().has('serviceName', '{service_name}').in('depends_on').values('serviceName')"
-                result = self.graph.execute_query(query)
-                upstream = list(result)
+                result_set = self._gremlin_client.submit(query)
+                upstream = list(result_set.all().result())
             
             if direction in ["out", "both"]:
                 query = f"g.V().has('serviceName', '{service_name}').out('depends_on').values('serviceName')"
-                result = self.graph.execute_query(query)
-                downstream = list(result)
+                result_set = self._gremlin_client.submit(query)
+                downstream = list(result_set.all().result())
             
             return {"upstream": upstream, "downstream": downstream}
         except Exception as e:
             logger.error(f"Failed to get dependencies: {e}")
             return {"upstream": [], "downstream": []}
+        finally:
+            await self._close()
 
 
 # Azure Function entry points

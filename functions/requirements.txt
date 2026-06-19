@@ -13,6 +13,10 @@ azure-cosmos==4.5.1
 azure-eventgrid==4.11.0
 azure-mgmt-containerservice==21.0.0
 azure-mgmt-authorization==4.0.0
+azure-monitor-query==1.2.0
+
+# Graph DB
+gremlin-python==3.7.0
 
 # HTTP client
 httpx==0.26.0

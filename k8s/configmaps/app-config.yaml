@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: changetrace
+data:
+  LOG_LEVEL: "INFO"
+  ENVIRONMENT: "production"
+  SERVICE_VERSION: "v1.0.0"

@@ -151,11 +151,32 @@ class SLOTracker:
     ) -> float:
         """Query actual SLO metric from monitoring system."""
         
-        # TODO: Query Application Insights / Prometheus / Azure Monitor
-        # For now, return mock values
-        mock_values = {
-            "availability": 0.9995,
-            "latency_p99": 450,
-            "error_rate": 0.0005,
-        }
-        return mock_values.get(slo_name, 0.0)
+        # Query Application Insights / Prometheus / Azure Monitor
+        # This would use the Azure Monitor SDK or Prometheus client
+        # For now, we'll raise an exception to indicate the client needs to be configured
+        
+        if not hasattr(self, '_metrics_client') or not self._metrics_client:
+            raise ValueError(
+                "Metrics client not configured. "
+                "Set up Application Insights / Prometheus client to query SLO metrics."
+            )
+        
+        try:
+            # Example query for Application Insights:
+            # requests
+            # | where cloud_RoleName == service_name
+            # | where timestamp >= ago(30d)
+            # | summarize 
+            #     availability = countif(success == true) / count(),
+            #     latency_p99 = percentile(duration, 99),
+            #     error_rate = countif(success == false) / count()
+            
+            # For now, raise an exception to indicate the client needs to be configured
+            raise NotImplementedError(
+                "SLO metric querying not implemented. "
+                "Configure Application Insights / Prometheus client to query actual metrics."
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to query SLO metric: {e}")
+            raise

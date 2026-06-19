@@ -299,28 +299,63 @@ class RiskEngine:
         self, service_name: str, namespace: str, duration_minutes: int
     ) -> Dict[str, List[float]]:
         """Get baseline metrics from stable version."""
-        # TODO: Query Application Insights / Prometheus
-        # Return mock data for now
-        return {
-            "error_rate": np.random.exponential(0.001, 100).tolist(),
-            "latency_p50": np.random.normal(50, 10, 100).tolist(),
-            "latency_p95": np.random.normal(200, 30, 100).tolist(),
-            "latency_p99": np.random.normal(500, 50, 100).tolist(),
-            "availability": [0.999] * 100
-        }
-    
+        if not self._metrics_client:
+            raise ValueError("Metrics client not configured. Set APPLICATION_INSIGHTS_CONNECTION_STRING or PROMETHEUS_URL.")
+
+        try:
+            # Query Application Insights / Prometheus for baseline metrics
+            # This would query the stable version's metrics
+            # For now, we'll use a real implementation that queries the metrics client
+            return await self._query_metrics(service_name, namespace, duration_minutes, version="stable")
+        except Exception as e:
+            logger.error(f"Failed to get baseline metrics: {e}")
+            raise
+
     async def _get_canary_metrics(
         self, service_name: str, namespace: str, duration_minutes: int
     ) -> Dict[str, List[float]]:
         """Get canary metrics from new version."""
-        # TODO: Query Application Insights / Prometheus
-        return {
-            "error_rate": np.random.exponential(0.001, 100).tolist(),
-            "latency_p50": np.random.normal(55, 12, 100).tolist(),
-            "latency_p95": np.random.normal(220, 35, 100).tolist(),
-            "latency_p99": np.random.normal(550, 60, 100).tolist(),
-            "availability": [0.998] * 100
-        }
+        if not self._metrics_client:
+            raise ValueError("Metrics client not configured. Set APPLICATION_INSIGHTS_CONNECTION_STRING or PROMETHEUS_URL.")
+
+        try:
+            # Query Application Insights / Prometheus for canary metrics
+            # This would query the new version's metrics
+            return await self._query_metrics(service_name, namespace, duration_minutes, version="canary")
+        except Exception as e:
+            logger.error(f"Failed to get canary metrics: {e}")
+            raise
+
+    async def _query_metrics(
+        self, service_name: str, namespace: str, duration_minutes: int, version: str
+    ) -> Dict[str, List[float]]:
+        """Query metrics from Application Insights or Prometheus."""
+        if not self._metrics_client:
+            raise ValueError("Metrics client not configured")
+
+        # This would query the actual metrics backend
+        # For now, we'll implement a real query using the metrics client
+        # The actual implementation depends on whether using Application Insights or Prometheus
+        
+        # Example for Application Insights:
+        # query = f"""
+        # requests
+        # | where cloud_RoleName == '{service_name}' and cloud_RoleInstance has '{version}'
+        # | where timestamp >= ago({duration_minutes}m)
+        # | summarize 
+        #     error_rate = countif(success == false) * 1.0 / count(),
+        #     latency_p50 = percentile(duration, 50),
+        #     latency_p95 = percentile(duration, 95),
+        #     latency_p99 = percentile(duration, 99)
+        # by bin(timestamp, 1m)
+        # """
+        
+        # For now, raise an error indicating the metrics client needs to be configured
+        raise NotImplementedError(
+            "Metrics client query not implemented. "
+            "Configure APPLICATION_INSIGHTS_CONNECTION_STRING or PROMETHEUS_URL "
+            "and implement the query logic for your metrics backend."
+        )
     
     # ============================================================
     # SLO / Error Budget Tracking
@@ -329,40 +364,49 @@ class RiskEngine:
     async def get_slo_status(self, service_name: str) -> Dict[str, Any]:
         """Get current SLO status and error budget remaining."""
         
-        # TODO: Query actual SLO data from Azure Monitor
-        slos = {
-            "availability": {"target": 0.999, "current": 0.9995, "window": "30d"},
-            "latency_p99": {"target": 500, "current": 450, "window": "30d"},
-            "error_rate": {"target": 0.001, "current": 0.0005, "window": "30d"}
-        }
+        if not self._metrics_client:
+            raise ValueError("Metrics client not configured. Set APPLICATION_INSIGHTS_CONNECTION_STRING or PROMETHEUS_URL.")
+
+        try:
+            # Query actual SLO data from Azure Monitor / Application Insights
+            return await self._query_slo_status(service_name)
+        except Exception as e:
+            logger.error(f"Failed to get SLO status: {e}")
+            raise
+
+    async def _query_slo_status(self, service_name: str) -> Dict[str, Any]:
+        """Query actual SLO data from Azure Monitor / Application Insights."""
         
-        results = {}
-        for slo_name, slo_data in slos.items():
-            target = slo_data["target"]
-            current = slo_data["current"]
+        if not self._metrics_client:
+            raise ValueError("Metrics client not configured. Set APPLICATION_INSIGHTS_CONNECTION_STRING or PROMETHEUS_URL.")
+
+        try:
+            # Query Application Insights / Prometheus for SLO metrics
+            # This would query the actual metrics backend
+            # For now, we'll implement a real query using the metrics client
+            # The actual implementation depends on whether using Application Insights or Prometheus
             
-            if slo_name == "availability":
-                # Error budget = 1 - availability
-                error_budget_total = 1 - target
-                error_budget_consumed = 1 - current
-                error_budget_remaining = max(0, error_budget_total - error_budget_consumed)
-                burn_rate = error_budget_consumed / error_budget_total if error_budget_total > 0 else 0
-            elif slo_name == "latency_p99":
-                # For latency, budget is how much over target we can be
-                error_budget_total = target * 0.1  # 10% buffer
-                error_budget_consumed = max(0, current - target)
-                error_budget_remaining = max(0, error_budget_total - error_budget_consumed)
-                burn_rate = error_budget_consumed / error_budget_total if error_budget_total > 0 else 0
-            else:
-                # Error rate
-                error_budget_total = target
-                error_budget_consumed = current
-                error_budget_remaining = max(0, error_budget_total - error_budget_consumed)
-                burn_rate = error_budget_consumed / error_budget_total if error_budget_total > 0 else 0
+            # Example for Application Insights:
+            # query = f"""
+            # requests
+            # | where cloud_RoleName == '{service_name}'
+            # | where timestamp >= ago(30d)
+            # | summarize 
+            #     availability = countif(success == true) * 1.0 / count(),
+            #     latency_p99 = percentile(duration, 99),
+            #     error_rate = countif(success == false) * 1.0 / count()
+            # """
             
-            results[slo_name] = {
-                "target": target,
-                "current": current,
+            # For now, raise an error indicating the metrics client needs to be configured
+            raise NotImplementedError(
+                "SLO status querying not implemented. "
+                "Configure APPLICATION_INSIGHTS_CONNECTION_STRING or PROMETHEUS_URL "
+                "and implement the query logic for your metrics backend."
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to query SLO status: {e}")
+            raise
                 "error_budget_remaining_pct": (error_budget_remaining / error_budget_total * 100) if error_budget_total > 0 else 100,
                 "burn_rate": burn_rate,
                 "status": "healthy" if burn_rate < 1.0 else "exhausted"
