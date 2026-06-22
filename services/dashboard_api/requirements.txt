@@ -16,7 +16,7 @@ azure-mgmt-monitor==4.0.0
 azure-mgmt-resource==23.1.0
 
 # Graph
-gremlinpython==3.7.0
+gremlinpython==3.8.1
 
 # Utilities
 python-dotenv==1.0.0

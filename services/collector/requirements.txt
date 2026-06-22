@@ -26,7 +26,7 @@ PyGithub==2.1.1
 kubernetes==29.0.0
 
 # Graph database
-gremlinpython==3.7.0
+gremlinpython==3.8.1
 
 # HTTP client for Gremlin
 aiohttp==3.9.5
