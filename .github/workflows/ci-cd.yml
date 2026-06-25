@@ -26,9 +26,9 @@ on:
         type: boolean
 
 env:
-  REGISTRY: changetracei5fv8bacr.azurecr.io
+  REGISTRY: changetrace29r2ywacr.azurecr.io
   IMAGE_TAG: ${{ github.sha }}
-  AZURE_RESOURCE_GROUP: changetrace-i5fv8b-rg
+  AZURE_RESOURCE_GROUP: changetrace-29r2yw-rg
   AKS_CLUSTER_NAME: changetrace-aks
 
 jobs:
@@ -252,15 +252,15 @@ jobs:
         run: |
           # Get current storage connection string and update app setting
           STORAGE_KEY=$(az storage account keys list \
-            --resource-group changetrace-i5fv8b-rg \
-            --account-name changetracei5fv8bsa \
+            --resource-group changetrace-29r2yw-rg \
+            --account-name changetrace29r2ywsa \
             --query '[0].value' -o tsv)
           
-          CONN_STRING="DefaultEndpointsProtocol=https;AccountName=changetracei5fv8bsa;AccountKey=${STORAGE_KEY};EndpointSuffix=core.windows.net"
+          CONN_STRING="DefaultEndpointsProtocol=https;AccountName=changetrace29r2ywsa;AccountKey=${STORAGE_KEY};EndpointSuffix=core.windows.net"
           
           az functionapp config appsettings set \
-            --resource-group changetrace-i5fv8b-rg \
-            --name changetrace-i5fv8b-func \
+            --resource-group changetrace-29r2yw-rg \
+            --name changetrace-29r2yw-func \
             --settings "AzureWebJobsStorage=${CONN_STRING}"
           
           # Now deploy with func
@@ -269,7 +269,7 @@ jobs:
           retry_delay=30
           for i in $(seq 1 $max_retries); do
             echo "=== Attempt $i of $max_retries ==="
-            func azure functionapp publish changetrace-i5fv8b-func --python --build remote --verbose 2>&1
+            func azure functionapp publish changetrace-29r2yw-func --python --build remote --verbose 2>&1
             exit_code=$?
             if [ $exit_code -eq 0 ]; then
               echo "Deployment successful!"
@@ -438,7 +438,7 @@ jobs:
       - name: Check if AKS exists
         id: aks-check
         run: |
-          if az aks show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }} &>/dev/null; then
+          if az aks show --resource-group changetrace-29r2yw-rg --name changetrace-aks &>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
@@ -448,8 +448,8 @@ jobs:
         if: steps.aks-check.outputs.exists == 'true'
         run: |
           az aks get-credentials \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --name ${{ env.AKS_CLUSTER_NAME }} \
+            --resource-group changetrace-29r2yw-rg \
+            --name changetrace-aks \
             --overwrite-existing
       
       - name: Deploy to AKS
@@ -460,8 +460,6 @@ jobs:
           kubectl apply -f k8s/configmaps/
           kubectl apply -f k8s/secrets/
           kubectl apply -f k8s/deployments/
-          kubectl apply -f k8s/services/
-          kubectl apply -f k8s/ingress/
       
       - name: Verify deployment
         if: steps.aks-check.outputs.exists == 'true'
@@ -472,6 +470,7 @@ jobs:
           kubectl rollout status deployment/graph_builder -n changetrace --timeout=300s
           kubectl rollout status deployment/risk_engine -n changetrace --timeout=300s
           kubectl rollout status deployment/postmortem_generator -n changetrace --timeout=300s
+          kubectl rollout status deployment/otel-collector -n changetrace --timeout=300s
 
   # ============================================================
   # CHAOS VALIDATION
@@ -501,7 +500,7 @@ jobs:
       - name: Check if AKS exists
         id: aks-check
         run: |
-          if az aks show --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }} &>/dev/null; then
+          if az aks show --resource-group changetrace-29r2yw-rg --name changetrace-aks &>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
@@ -511,16 +510,16 @@ jobs:
         if: steps.aks-check.outputs.exists == 'true'
         run: |
           # Start AKS if stopped
-          az aks start --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }}
+          az aks start --resource-group changetrace-29r2yw-rg --name changetrace-aks
           
           # Wait for cluster to be ready
           sleep 60
           
           # Run each chaos experiment
-          for experiment in pod-failure network-latency cpu-pressure; do
+          for experiment in pod-failure network-latency cpu-pressure memory-pressure dns-failure disk-io-pressure; do
             echo "Running experiment: $experiment"
             az chaos experiment start \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group changetrace-29r2yw-rg \
               --name "changetrace-$experiment" \
               --no-wait
             
@@ -529,7 +528,7 @@ jobs:
             
             # Collect results
             az chaos experiment show \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group changetrace-29r2yw-rg \
               --name "changetrace-$experiment" \
               --query "status" -o tsv
           done
@@ -550,7 +549,7 @@ jobs:
       - name: Stop AKS
         if: always() && steps.aks-check.outputs.exists == 'true'
         run: |
-          az aks stop --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }}
+          az aks stop --resource-group changetrace-29r2yw-rg --name changetrace-aks
 
   # ============================================================
   # NOTIFICATIONS
