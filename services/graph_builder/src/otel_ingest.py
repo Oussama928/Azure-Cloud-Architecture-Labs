@@ -1,14 +1,11 @@
-"""
-OpenTelemetry Ingestion for Graph Builder
-
-Ingests OpenTelemetry traces and extracts service dependencies.
-"""
+"""OpenTelemetry Ingestion for Graph Builder."""
 
 import logging
 import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+import azure.functions as func
 import httpx
 from azure.identity import DefaultAzureCredential
 from azure.monitor.query import LogsQueryClient, MetricsQueryClient
@@ -16,6 +13,7 @@ from gremlin_python.driver import client, serializer
 from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
 from gremlin_python.process.anonymous_traversal import traversal
 from gremlin_python.process.graph_traversal import __
+from services.shared.cosmos import get_cosmos_config_from_env
 import urllib.parse
 
 logger = logging.getLogger(__name__)
@@ -46,10 +44,11 @@ class OTELIngestor:
         if self._g is not None:
             return
             
-        endpoint = os.getenv("COSMOS_DB_ENDPOINT")
-        key = os.getenv("COSMOS_DB_KEY")
-        database = os.getenv("COSMOS_DB_DATABASE", "changetrace-graph")
-        graph = os.getenv("COSMOS_DB_GRAPH", "dependency-graph")
+        config = get_cosmos_config_from_env()
+        endpoint = config["endpoint"]
+        key = config["key"]
+        database = config["database"]
+        graph = config["graph"]
         
         if not endpoint or not key:
             raise ValueError("Cosmos DB credentials not configured. Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY environment variables.")
@@ -86,14 +85,12 @@ class OTELIngestor:
     async def ingest_traces(
         self,
         lookback_hours: int = 1,
-        min_spans: int = 10
+        min_spans: int = 10,
+        tenant_id: str | None = None,
     ) -> Dict[str, Any]:
-        """
-        Ingest traces from Application Insights / Log Analytics.
-        
-        Extracts service-to-service calls and updates dependency graph.
-        """
-        logger.info(f"Ingesting traces (lookback: {lookback_hours}h, min_spans: {min_spans})")
+        """Ingest traces from Application Insights / Log Analytics."""
+        tenant_id = tenant_id or os.getenv("DEFAULT_TENANT_ID", "demo-tenant")
+        logger.info(f"Ingesting traces (lookback: {lookback_hours}h, min_spans: {min_spans}, tenant: {tenant_id})")
         
         if not self.logs_client:
             raise ValueError("Log Analytics workspace not configured. Set LOG_ANALYTICS_WORKSPACE_ID environment variable.")
@@ -101,7 +98,6 @@ class OTELIngestor:
         await self._connect_gremlin()
         
         try:
-            # Query for traces
             query = self._build_trace_query(lookback_hours, min_spans)
             
             response = self.logs_client.query_workspace(
@@ -112,13 +108,13 @@ class OTELIngestor:
             
             edges = self._parse_trace_results(response)
             
-            # Update graph in Cosmos DB
-            updated = await self._update_graph(edges)
+            updated = await self._update_graph(edges, tenant_id=tenant_id)
             
             return {
                 "edges_processed": len(edges),
                 "services_discovered": len(set([e["source"] for e in edges] + [e["target"] for e in edges])),
-                "updated_at": datetime.utcnow().isoformat()
+                "updated_at": datetime.utcnow().isoformat(),
+                "tenant_id": tenant_id,
             }
             
         except Exception as e:
@@ -158,16 +154,17 @@ class OTELIngestor:
         
         return edges
     
-    async def _update_graph(self, edges: List[Dict[str, Any]]) -> Dict[str, int]:
+    async def _update_graph(self, edges: List[Dict[str, Any]], tenant_id: str | None = None) -> Dict[str, int]:
         """Update dependency graph with new edges in Cosmos DB Gremlin."""
         
         if not self._gremlin_client:
             raise ValueError("Gremlin client not connected")
         
+        tenant_id = tenant_id or os.getenv("DEFAULT_TENANT_ID", "demo-tenant")
+
         vertices_updated = 0
         edges_updated = 0
         
-        # Collect all unique services
         services = set()
         for edge in edges:
             services.add(edge["source"])
@@ -177,8 +174,10 @@ class OTELIngestor:
         for service in services:
             try:
                 query = f"""
-                g.V().has('serviceName', '{service}').fold().
-                coalesce(unfold(), addV('Service').property('serviceName', '{service}')).
+                g.V().has('serviceName', '{service}').has('tenantId', '{tenant_id}').fold().
+                coalesce(unfold(), addV('Service').
+                    property('serviceName', '{service}').
+                    property('tenantId', '{tenant_id}')).
                 property('updatedAt', '{datetime.utcnow().isoformat()}').
                 property('criticality', 'medium')
                 """
@@ -189,22 +188,42 @@ class OTELIngestor:
         
         # Upsert edges (dependencies)
         for edge in edges:
+            now = datetime.utcnow().isoformat()
+            source = edge['source']
+            target = edge['target']
+            count = edge['call_count']
+            latency = edge['latency_p99']
             try:
-                query = f"""
-                g.V().has('serviceName', '{edge['source']}').as('s').
-                V().has('serviceName', '{edge['target']}').as('t').
+                # 1) Create the edge only if it does not already exist, applying
+                #    properties inside the addE branch (Cosmos rejects
+                #    coalesce(...).property(...) on a produced edge).
+                create_query = f"""
+                g.V().has('serviceName', '{source}').has('tenantId', '{tenant_id}').as('s').
+                V().has('serviceName', '{target}').has('tenantId', '{tenant_id}').as('t').
                 coalesce(
                     __.inE('depends_on').where(__.outV().as('s')),
-                    __.addE('depends_on').from('s').to('t')
-                ).
-                property('callCount', {edge['call_count']}).
-                property('latencyP99', {edge['latency_p99']}).
-                property('updatedAt', '{datetime.utcnow().isoformat()}')
+                    __.addE('depends_on').from('s').to('t').
+                        property('tenantId', '{tenant_id}').
+                        property('callCount', {count}).
+                        property('latencyP99', {latency}).
+                        property('updatedAt', '{now}')
+                )
                 """
-                self._gremlin_client.submit(query).all().result()
+                self._gremlin_client.submit(create_query).all().result()
+
+                # 2) Update properties on the (now existing) edge.
+                update_query = f"""
+                g.V().has('serviceName', '{source}').has('tenantId', '{tenant_id}').
+                outE('depends_on').
+                where(otherV().has('serviceName', '{target}').has('tenantId', '{tenant_id}')).
+                property('callCount', {count}).
+                property('latencyP99', {latency}).
+                property('updatedAt', '{now}')
+                """
+                self._gremlin_client.submit(update_query).all().result()
                 edges_updated += 1
             except Exception as e:
-                logger.error(f"Failed to upsert edge {edge['source']}->{edge['target']}: {e}")
+                logger.error(f"Failed to upsert edge {source}->{target}: {e}")
         
         return {"vertices": vertices_updated, "edges": edges_updated}
     
@@ -226,8 +245,9 @@ async def main(req: func.HttpRequest) -> func.HttpResponse:
         body = req.get_json() if req.get_body() else {}
         lookback = body.get("lookback_hours", 1)
         min_spans = body.get("min_spans", 10)
+        tenant_id = body.get("tenant_id") or os.getenv("DEFAULT_TENANT_ID", "demo-tenant")
         
-        result = await ingestor.ingest_traces(lookback, min_spans)
+        result = await ingestor.ingest_traces(lookback, min_spans, tenant_id=tenant_id)
         
         return func.HttpResponse(
             body=str(result),
@@ -245,5 +265,6 @@ async def timer_trigger(timer: func.TimerRequest) -> None:
     """Timer trigger to periodically ingest traces."""
     
     ingestor = OTELIngestor()
-    result = await ingestor.ingest_traces(lookback_hours=1, min_spans=10)
+    tenant_id = os.getenv("DEFAULT_TENANT_ID", "demo-tenant")
+    result = await ingestor.ingest_traces(lookback_hours=1, min_spans=10, tenant_id=tenant_id)
     logger.info(f"Scheduled trace ingestion completed: {result}")

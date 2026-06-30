@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: changetrace-collector
+  namespace: changetrace
+  annotations:
+    azure.workload.identity/client-id: "4f295b19-474c-4c19-9011-5c7d07c32306"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: changetrace-dashboard-api
+  namespace: changetrace
+  annotations:
+    azure.workload.identity/client-id: "4f295b19-474c-4c19-9011-5c7d07c32306"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: changetrace-collector
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "services", "pods", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: changetrace-collector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: changetrace-collector
+subjects:
+  - kind: ServiceAccount
+    name: changetrace-collector
+    namespace: changetrace

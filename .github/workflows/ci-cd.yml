@@ -29,17 +29,14 @@ env:
   REGISTRY: changetrace29r2ywacr.azurecr.io
   IMAGE_TAG: ${{ github.sha }}
   AZURE_RESOURCE_GROUP: changetrace-29r2yw-rg
-  AKS_CLUSTER_NAME: changetrace-aks
+  AKS_CLUSTER_NAME: changetrace-dev-aks
 
 jobs:
-  # ============================================================
-  # LINT & TEST
-  # ============================================================
+  # Lint & Test
   lint-and-test:
     name: Lint & Test
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    continue-on-error: true
     
     steps:
       - name: Checkout code
@@ -73,7 +70,6 @@ jobs:
           pytest services/correlation_engine/tests/ -v --cov=services/correlation_engine --cov-report=xml
           pytest services/graph_builder/tests/ -v --cov=services/graph_builder --cov-report=xml
           pytest services/risk_engine/tests/ -v --cov=services/risk_engine --cov-report=xml
-        continue-on-error: true
       
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -81,9 +77,7 @@ jobs:
           files: ./coverage.xml
           fail_ci_if_error: false
 
-  # ============================================================
-  # DASHBOARD BUILD
-  # ============================================================
+  # Dashboard Build
   dashboard-build:
     name: Build Dashboard
     runs-on: ubuntu-latest
@@ -112,7 +106,6 @@ jobs:
       - name: Run tests
         working-directory: ./dashboard
         run: npm test -- --coverage
-        continue-on-error: true
       
       - name: Build production
         working-directory: ./dashboard
@@ -125,9 +118,7 @@ jobs:
           path: dashboard/build/
           retention-days: 7
 
-  # ============================================================
   # DOCKER BUILD & PUSH
-  # ============================================================
   docker-build:
     name: Build & Push Docker Images
     needs: [lint-and-test, dashboard-build]
@@ -147,6 +138,8 @@ jobs:
           - graph_builder
           - postmortem_generator
           - risk_engine
+          - mock_source
+          - demo_app
     
     steps:
       - name: Checkout code
@@ -175,6 +168,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
       
       - name: Build and push
+        id: build-push
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -183,7 +177,6 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
-        continue-on-error: true
         # Retry on transient network errors (e.g. Docker Hub timeouts)
         timeout-minutes: 15
         env:
@@ -205,9 +198,44 @@ jobs:
               --push \
               .
 
-  # ============================================================
   # FUNCTIONS BUILD & DEPLOY
-  # ============================================================
+  dashboard-image:
+    name: Build & Push Dashboard Image
+    needs: dashboard-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Azure Container Registry
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ env.REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+        continue-on-error: true
+
+      - name: Build and push dashboard
+        uses: docker/build-push-action@v5
+        with:
+          context: ./dashboard
+          file: ./dashboard/Dockerfile
+          build-args: |
+            VITE_API_BASE=/api
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/changetrace-dashboard:${{ github.sha }}
+            ${{ env.REGISTRY }}/changetrace-dashboard:latest
+          platforms: linux/amd64
+
   functions-build:
     name: Build & Deploy Functions
     needs: lint-and-test
@@ -281,9 +309,7 @@ jobs:
           echo "All retries exhausted."
           exit 1
 
-  # ============================================================
   # TERRAFORM PLAN
-  # ============================================================
   terraform-plan:
     name: Terraform Plan
     needs: lint-and-test
@@ -357,9 +383,7 @@ jobs:
               body: '## Terraform Plan\n```\n' + plan + '\n```'
             })
 
-  # ============================================================
   # TERRAFORM APPLY (dev)
-  # ============================================================
   terraform-apply-dev:
     name: Terraform Apply (dev)
     needs: [terraform-plan, docker-build, functions-build]
@@ -410,12 +434,10 @@ jobs:
         run: |
           terraform apply -auto-approve tfplan
 
-  # ============================================================
   # AKS DEPLOY
-  # ============================================================
   aks-deploy:
     name: Deploy to AKS
-    needs: [terraform-apply-dev, docker-build]
+    needs: [terraform-apply-dev, docker-build, dashboard-image]
     if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -438,7 +460,7 @@ jobs:
       - name: Check if AKS exists
         id: aks-check
         run: |
-          if az aks show --resource-group changetrace-29r2yw-rg --name changetrace-aks &>/dev/null; then
+          if az aks show --resource-group changetrace-29r2yw-rg --name changetrace-dev-aks &>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
@@ -449,32 +471,61 @@ jobs:
         run: |
           az aks get-credentials \
             --resource-group changetrace-29r2yw-rg \
-            --name changetrace-aks \
+            --name changetrace-dev-aks \
             --overwrite-existing
       
+      - name: Create/rotate secrets
+        if: steps.aks-check.outputs.exists == 'true'
+        run: |
+          # ACR pull secret (idempotent: recreated with current ACR credentials)
+          kubectl delete secret acr-pull-secret -n changetrace 2>/dev/null || true
+          kubectl create secret docker-registry acr-pull-secret -n changetrace \
+            --docker-server=${{ env.REGISTRY }} \
+            --docker-username="${{ secrets.ACR_USERNAME }}" \
+            --docker-password="${{ secrets.ACR_PASSWORD }}"
+
+          # Cosmos DB secret (idempotent: keeps existing value if already set)
+          COSMOS_KEY=$(az cosmosdb keys list --name changetrace-29r2yw-cosmos \
+            --resource-group changetrace-29r2yw-rg --query primaryMasterKey -o tsv)
+          COSMOS_ENDPOINT="wss://changetrace-29r2yw-cosmos.gremlin.cosmos.azure.com:443/"
+          kubectl delete secret changetrace-cosmos-secret -n changetrace 2>/dev/null || true
+          kubectl create secret generic changetrace-cosmos-secret -n changetrace \
+            --from-literal=cosmos-connection-string="AccountEndpoint=https://changetrace-29r2yw-cosmos.documents.azure.com:443/;AccountKey=${COSMOS_KEY};"
+
+          # Internal auth token + simple auth secret
+          if ! kubectl get secret changetrace-internal-secret -n changetrace &>/dev/null; then
+            kubectl create secret generic changetrace-internal-secret -n changetrace \
+              --from-literal=internal-auth-token="ct-$(openssl rand -hex 24)"
+          fi
+          if ! kubectl get secret changetrace-simple-auth-secret -n changetrace &>/dev/null; then
+            kubectl create secret generic changetrace-simple-auth-secret -n changetrace \
+              --from-literal=simple-auth-secret="changetrace-$(openssl rand -hex 24)"
+          fi
+
       - name: Deploy to AKS
         if: steps.aks-check.outputs.exists == 'true'
         run: |
-          # Apply Kubernetes manifests
+          # Apply Kubernetes manifests (placeholders in k8s/secrets are NOT applied)
           kubectl apply -f k8s/namespace.yaml
           kubectl apply -f k8s/configmaps/
-          kubectl apply -f k8s/secrets/
+          kubectl apply -f k8s/services/
+          kubectl apply -f k8s/ingress/
+          kubectl apply -f k8s/rbac/
           kubectl apply -f k8s/deployments/
       
       - name: Verify deployment
         if: steps.aks-check.outputs.exists == 'true'
         run: |
-          kubectl rollout status deployment/collector -n changetrace --timeout=300s
-          kubectl rollout status deployment/correlation_engine -n changetrace --timeout=300s
-          kubectl rollout status deployment/dashboard_api -n changetrace --timeout=300s
-          kubectl rollout status deployment/graph_builder -n changetrace --timeout=300s
-          kubectl rollout status deployment/risk_engine -n changetrace --timeout=300s
-          kubectl rollout status deployment/postmortem_generator -n changetrace --timeout=300s
+          kubectl rollout status deployment/changetrace-collector -n changetrace --timeout=300s
+          kubectl rollout status deployment/changetrace-correlation-engine -n changetrace --timeout=300s
+          kubectl rollout status deployment/changetrace-dashboard-api -n changetrace --timeout=300s
+          kubectl rollout status deployment/changetrace-graph-builder -n changetrace --timeout=300s
+          kubectl rollout status deployment/changetrace-risk-engine -n changetrace --timeout=300s
+          kubectl rollout status deployment/changetrace-postmortem-generator -n changetrace --timeout=300s
+          kubectl rollout status deployment/changetrace-mock-source -n changetrace --timeout=300s
           kubectl rollout status deployment/otel-collector -n changetrace --timeout=300s
 
-  # ============================================================
   # CHAOS VALIDATION
-  # ============================================================
   chaos-validation:
     name: Chaos Validation
     needs: aks-deploy
@@ -500,7 +551,7 @@ jobs:
       - name: Check if AKS exists
         id: aks-check
         run: |
-          if az aks show --resource-group changetrace-29r2yw-rg --name changetrace-aks &>/dev/null; then
+          if az aks show --resource-group changetrace-29r2yw-rg --name changetrace-dev-aks &>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
@@ -510,33 +561,20 @@ jobs:
         if: steps.aks-check.outputs.exists == 'true'
         run: |
           # Start AKS if stopped
-          az aks start --resource-group changetrace-29r2yw-rg --name changetrace-aks
-          
+          az aks start --resource-group changetrace-29r2yw-rg --name changetrace-dev-aks
+
           # Wait for cluster to be ready
           sleep 60
-          
-          # Run each chaos experiment
-          for experiment in pod-failure network-latency cpu-pressure memory-pressure dns-failure disk-io-pressure; do
-            echo "Running experiment: $experiment"
-            az chaos experiment start \
-              --resource-group changetrace-29r2yw-rg \
-              --name "changetrace-$experiment" \
-              --no-wait
-            
-            # Wait for experiment to complete
-            sleep 120
-            
-            # Collect results
-            az chaos experiment show \
-              --resource-group changetrace-29r2yw-rg \
-              --name "changetrace-$experiment" \
-              --query "status" -o tsv
-          done
-      
+          az aks get-credentials --resource-group changetrace-29r2yw-rg \
+            --name changetrace-dev-aks --overwrite-existing
+
+          # Lightweight fault injection via kubectl (targets real deployments by label)
+          bash chaos/scripts/k8s_chaos_runner.sh changetrace
+  
       - name: Evaluate Results
         if: steps.aks-check.outputs.exists == 'true'
         run: |
-          python chaos/scripts/evaluate_precision_recall.py --results-dir chaos/results --output evaluation_report.txt
+          python chaos/scripts/evaluate_precision_recall.py --results-dir chaos/results/k8s --output evaluation_report.txt
       
       - name: Upload Evaluation Report
         if: steps.aks-check.outputs.exists == 'true'
@@ -549,11 +587,9 @@ jobs:
       - name: Stop AKS
         if: always() && steps.aks-check.outputs.exists == 'true'
         run: |
-          az aks stop --resource-group changetrace-29r2yw-rg --name changetrace-aks
+          az aks stop --resource-group changetrace-29r2yw-rg --name changetrace-dev-aks
 
-  # ============================================================
   # NOTIFICATIONS
-  # ============================================================
   notify:
     name: Notify
     needs: [lint-and-test, docker-build, functions-build, terraform-apply-dev]

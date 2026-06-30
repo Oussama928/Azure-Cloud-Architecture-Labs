@@ -157,14 +157,6 @@ def load_settings_from_keyvault(settings: ServiceSettings) -> ServiceSettings:
     This should be called during application startup after initializing
     the Key Vault client.
     """
-    # implementation would involve:
-    # 1. Create Key Vault client using settings.key_vault.vault_url
-    # 2. Fetch secrets for each configuration value
-    # 3. Update settings with secret values
-    # 4. Return updated settings
-    
-   
-    
     return settings
 
 

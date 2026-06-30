@@ -28,9 +28,6 @@ logger = logging.getLogger(__name__)
 class RiskModelTrainer:
     """
     Trainer for the deployment risk scoring model.
-
-    Binary classifier predicting whether a deployment will cause an incident.
-    Features: change characteristics, service properties, historical patterns.
     """
 
     def __init__(
@@ -96,16 +93,6 @@ class RiskModelTrainer:
     ) -> dict[str, Any]:
         """
         Train the risk model.
-
-        Args:
-            X: Feature matrix (n_samples, n_features)
-            y: Binary labels (0 = safe, 1 = caused incident)
-            weights: Sample weights
-            validation_split: Fraction for validation
-            early_stopping_rounds: Early stopping patience
-
-        Returns:
-            Dictionary with training metrics
         """
         if len(X) < 10:
             raise ValueError(f"Need at least 10 training examples, got {len(X)}")
@@ -113,14 +100,12 @@ class RiskModelTrainer:
         if weights is None:
             weights = np.ones(len(X))
 
-        # Split data
         X_train, X_val, y_train, y_val, w_train, w_val = train_test_split(
             X, y, weights, test_size=validation_split, random_state=42, stratify=y
         )
 
         logger.info(f"Train: {len(X_train)}, Val: {len(X_val)}, Positive rate: {y.mean():.3f}")
 
-        # Train base model
         self.model = lgb.LGBMClassifier(**self.params)
         self.model.fit(
             X_train, y_train,
@@ -130,7 +115,6 @@ class RiskModelTrainer:
             callbacks=[lgb.early_stopping(early_stopping_rounds), lgb.log_evaluation(0)],
         )
 
-        # Calibrate if requested
         if self.calibrate:
             logger.info("Calibrating model probabilities...")
             self.calibrated_model = CalibratedClassifierCV(
@@ -141,7 +125,6 @@ class RiskModelTrainer:
         else:
             predictor = self.model
 
-        # Evaluate
         metrics = self._evaluate(predictor, X_val, y_val, w_val)
 
         self.is_trained = True
@@ -341,7 +324,6 @@ def generate_synthetic_deployment_data(
     X = np.vstack([X_neg, X_pos])
     y = np.hstack([np.zeros(n_neg), np.ones(n_pos)])
 
-    # Shuffle
     indices = np.random.permutation(n)
     X = X[indices]
     y = y[indices]
@@ -349,7 +331,7 @@ def generate_synthetic_deployment_data(
     return X, y
 
 
-async def main():
+def main():
     """Main training entry point"""
     import argparse
 
@@ -376,5 +358,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()

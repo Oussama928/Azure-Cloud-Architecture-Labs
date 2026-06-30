@@ -2,7 +2,6 @@
 WF-1: Incident Response Orchestrator
 
 Durable Function orchestrator for incident root cause analysis and remediation.
-Implements fan-out/fan-in, wait-for-external-event, and durable timer patterns.
 """
 
 import json
@@ -21,7 +20,6 @@ from shared.models.workflow_state import (
     WorkflowTimeouts,
 )
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -29,33 +27,19 @@ logger = logging.getLogger(__name__)
 def orchestrator_function(context: df.DurableOrchestrationContext):
     """
     Main orchestrator for WF-1 Incident Response workflow.
-
-    Flow:
-    1. Fan-out: Gather evidence (changes, graph, metrics, logs)
-    2. Fan-in: Correlate and rank candidates
-    3. Branch: If confidence >= 0.75, request human approval
-    4. Wait for approval (with 15-min timer + 30-min escalation)
-    5. Execute approved remediation action
-    6. Verify SLO recovery for 5 minutes
-    7. Record ground truth for training
     """
-    # Get input
     incident_data = context.get_input()
     if not incident_data:
         raise ValueError("No incident data provided")
 
-    # Initialize state
     state = IncidentWorkflowState(**incident_data)
     state.status = WorkflowStatus.RUNNING
     state.add_audit_entry("workflow_started", {"incident_id": state.incident_id})
 
-    # Set custom status for monitoring
     context.set_custom_status(state.model_dump())
 
     try:
-        # ============================================================
         # PHASE 1: Fan-out evidence gathering
-        # ============================================================
         state.status = WorkflowStatus.RUNNING
         state.add_audit_entry("evidence_gathering_started")
         context.set_custom_status(state.model_dump())
@@ -80,10 +64,9 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
             }),
         ]
 
-        # Wait for all evidence gathering to complete
         evidence_results = yield context.task_all(evidence_tasks)
 
-        recent_changes = evidence_results[0]
+        recent_changes = evidence_results[0].get("changes", [])
         blast_radius = evidence_results[1]
         service_metrics = evidence_results[2]
         recent_logs = evidence_results[3]
@@ -93,9 +76,7 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
             "blast_radius_services": len(blast_radius.get("affected_services", [])),
         })
 
-        # ============================================================
         # PHASE 2: Correlation and ranking
-        # ============================================================
         state.add_audit_entry("correlation_started")
         context.set_custom_status(state.model_dump())
 
@@ -118,9 +99,7 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
             "top_confidence": state.correlation_confidence,
         })
 
-        # ============================================================
         # PHASE 3: Decision - 3: Decision branching based on confidence
-        # ============================================================
         CONFIDENCE_THRESHOLD = 0.75
 
         if state.correlation_confidence >= CONFIDENCE_THRESHOLD and state.top_candidate:
@@ -128,13 +107,11 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
             state.status = WorkflowStatus.WAITING_FOR_APPROVAL
             state.approval_required = True
 
-            # Generate approval token and URL
             import secrets
             state.approval_token = secrets.token_urlsafe(32)
             state.approval_url = f"{context.get_input().get('approval_base_url', '')}/approve/{state.approval_token}"
             state.approval_requested_at = datetime.utcnow()
 
-            # Create approval request
             approval_request = ApprovalRequest(
                 workflow_id=state.workflow_id,
                 workflow_type="incident_response",
@@ -152,7 +129,6 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
                 token=state.approval_token,
             )
 
-            # Send approval notification (Teams, email, etc.)
             yield context.call_activity("SendApprovalRequest", approval_request.model_dump())
 
             state.add_audit_entry("approval_requested", {
@@ -161,16 +137,12 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
             })
             context.set_custom_status(state.model_dump())
 
-            # ============================================================
             # PHASE 4: Wait for approval with durable timer
-            # ============================================================
-            # Create timer for approval timeout
             approval_timeout = context.create_timer(
                 context.current_utc_datetime + timedelta(minutes=WorkflowTimeouts.APPROVAL_TIMEOUT_MINUTES),
                 "approval_timeout"
             )
 
-            # Wait for either approval or timeout
             approval_event = context.wait_for_external_event("ApprovalDecision")
 
             # Race between approval and timeout
@@ -204,7 +176,6 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
                     "escalation_level": state.escalation_level,
                 })
 
-                # Send escalation notification
                 yield context.call_activity("SendEscalationNotification", {
                     "workflow_id": state.workflow_id,
                     "incident_id": state.incident_id,
@@ -212,7 +183,6 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
                     "original_approver": "primary",
                 })
 
-                # Wait for escalation response (30 more minutes)
                 escalation_timeout = context.create_timer(
                     context.current_utc_datetime + timedelta(minutes=WorkflowTimeouts.ESCALATION_TIMEOUT_MINUTES),
                     "escalation_timeout"
@@ -249,14 +219,12 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
             context.set_custom_status(state.model_dump())
             return state.model_dump()
 
-        # ============================================================
         # PHASE 5: Execute remediation action
-        # ============================================================
         state.status = WorkflowStatus.EXECUTING_ACTION
         state.remediation_action = RemediationAction.ROLLBACK_DEPLOYMENT  # Default
         state.remediation_params = {
-            "deployment_id": state.top_candidate.get("deployment_id"),
-            "service_name": state.top_candidate.get("service_name"),
+            "deployment_id": state.top_candidate.get("deployment_id") or state.top_candidate.get("change_event_id"),
+            "service": state.top_candidate.get("service_name"),
             "namespace": state.top_candidate.get("namespace", "production"),
         }
         state.remediation_started_at = datetime.utcnow()
@@ -288,9 +256,7 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
             context.set_custom_status(state.model_dump())
             return state.model_dump()
 
-        # ============================================================
         # PHASE 6: Verify SLO recovery
-        # ============================================================
         state.status = WorkflowStatus.VERIFYING
         state.verification_started_at = datetime.utcnow()
 
@@ -299,13 +265,11 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
         })
         context.set_custom_status(state.model_dump())
 
-        # Wait for verification period
         yield context.create_timer(
             context.current_utc_datetime + timedelta(seconds=WorkflowTimeouts.VERIFICATION_DURATION_SECONDS),
             "verification_wait"
         )
 
-        # Check SLO status
         verification_result = yield context.call_activity("VerifySLORecovery", {
             "service_name": state.affected_service,
             "slo_name": state.slo_name,
@@ -320,14 +284,11 @@ def orchestrator_function(context: df.DurableOrchestrationContext):
             "details": verification_result,
         })
 
-        # ============================================================
         # PHASE 7: Complete and record ground truth
-        # ============================================================
         if state.slo_recovered:
             state.status = WorkflowStatus.COMPLETED
             state.completed_at = datetime.utcnow()
 
-            # Record ground truth for training
             if state.top_candidate:
                 yield context.call_activity("RecordGroundTruth", {
                     "incident_id": state.incident_id,

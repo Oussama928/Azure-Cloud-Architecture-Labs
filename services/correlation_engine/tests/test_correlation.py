@@ -1,6 +1,4 @@
-"""
-Tests for Correlation Engine
-"""
+"""Tests for Correlation Engine."""
 
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
@@ -343,18 +341,14 @@ class TestHeuristicModel:
         """Test heuristic ranking produces reasonable scores"""
         ranked = model.rank_candidates(incident, candidates, feature_vectors)
 
-        # Should return all candidates
         assert len(ranked) == 3
 
-        # Should be sorted by confidence descending
         assert ranked[0].confidence_score >= ranked[1].confidence_score
         assert ranked[1].confidence_score >= ranked[2].confidence_score
 
-        # Deployment at distance 0 should rank highest
         assert ranked[0].change_event_id == "evt-1"
         assert ranked[0].confidence_score > 0.5
 
-        # All should have scores set
         for c in ranked:
             assert c.confidence_score > 0
             assert c.model_version == "heuristic-1.0"
@@ -366,7 +360,6 @@ class TestHeuristicModel:
 
         assert len(probas) == 3
         assert all(0 <= p <= 1 for p in probas)
-        # First should be highest (deployment at distance 0)
         assert probas[0] > probas[1]
         assert probas[1] > probas[2]
 
@@ -430,7 +423,6 @@ class TestConfidenceModel:
         # Metrics are computed on validation set (20% of 50 = 10)
         assert metrics.num_samples == 10
 
-        # Save and load
         model.save(str(model_path))
         loaded = ConfidenceModel.load(str(model_path))
 
@@ -482,7 +474,8 @@ class TestCorrelator:
         with patch('services.correlation_engine.src.correlator.client.Client', return_value=mock_gremlin_client):
             with patch('services.correlation_engine.src.correlator.DriverRemoteConnection'):
                 correlator = Correlator(
-                    cosmos_connection_string="AccountEndpoint=https://test.gremlin.cosmos.azure.com:443/;AccountKey=test",
+                    cosmos_endpoint="wss://test.gremlin.cosmos.azure.com:443/",
+                    cosmos_key="test",
                     model=HeuristicConfidenceModel(),
                 )
                 await correlator.initialize()
@@ -503,7 +496,8 @@ class TestCorrelator:
         with patch('services.correlation_engine.src.correlator.client.Client', return_value=mock_gremlin_client):
             with patch('services.correlation_engine.src.correlator.DriverRemoteConnection'):
                 correlator = Correlator(
-                    cosmos_connection_string="AccountEndpoint=https://test.gremlin.cosmos.azure.com:443/;AccountKey=test",
+                    cosmos_endpoint="wss://test.gremlin.cosmos.azure.com:443/",
+                    cosmos_key="test",
                     model=HeuristicConfidenceModel(),
                 )
                 await correlator.initialize()

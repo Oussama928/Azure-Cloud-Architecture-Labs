@@ -1,8 +1,4 @@
-"""
-Blast Radius Calculator for Graph Builder
-
-Computes blast radius from a service using graph traversal.
-"""
+"""Blast Radius Calculator for Graph Builder."""
 
 import logging
 import os
@@ -12,6 +8,7 @@ from gremlin_python.driver import client, serializer
 from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
 from gremlin_python.process.anonymous_traversal import traversal
 from gremlin_python.process.graph_traversal import __
+from services.shared.cosmos import get_cosmos_config_from_env
 import urllib.parse
 
 logger = logging.getLogger(__name__)
@@ -30,10 +27,11 @@ class BlastRadiusCalculator:
         if self._g is not None:
             return
             
-        endpoint = os.getenv("COSMOS_DB_ENDPOINT")
-        key = os.getenv("COSMOS_DB_KEY")
-        database = os.getenv("COSMOS_DB_DATABASE", "changetrace-graph")
-        graph = os.getenv("COSMOS_DB_GRAPH", "dependency-graph")
+        config = get_cosmos_config_from_env()
+        endpoint = config["endpoint"]
+        key = config["key"]
+        database = config["database"]
+        graph = config["graph"]
         
         if not endpoint or not key:
             raise ValueError("Cosmos DB credentials not configured. Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY environment variables.")
@@ -73,12 +71,7 @@ class BlastRadiusCalculator:
         max_hops: int = 3,
         include_paths: bool = True
     ) -> Dict[str, Any]:
-        """
-        Compute blast radius from a service.
-        
-        Finds all services that depend on the given service (reverse dependencies)
-        up to max_hops distance.
-        """
+        """Compute blast radius from a service."""
         logger.info(f"Computing blast radius for {service_name} (max_hops: {max_hops})")
         
         await self._connect()
@@ -99,7 +92,6 @@ class BlastRadiusCalculator:
             
             # Remove the source service itself
             affected_services = [s for s in affected_services if s != service_name]
-            
             result_data = {
                 "source_service": service_name,
                 "affected_services": affected_services,
@@ -111,7 +103,6 @@ class BlastRadiusCalculator:
                 paths = await self._get_dependency_paths(service_name, affected_services, max_hops)
                 result_data["paths"] = paths
             
-            # Identify critical services (high dependent count)
             critical = await self._identify_critical_services(affected_services)
             result_data["critical_services_affected"] = critical
             

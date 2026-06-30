@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: changetrace-collector
+  namespace: changetrace
+  labels:
+    app: changetrace-collector
+    component: collector
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: changetrace-collector
+  template:
+    metadata:
+      labels:
+        app: changetrace-collector
+        component: collector
+        azure.workload.identity/use: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+    spec:
+      serviceAccountName: changetrace-collector
+      imagePullSecrets:
+        - name: acr-pull-secret
+      tolerations:
+        - key: "node.kubernetes.io/disk-pressure"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: collector
+          image: changetrace29r2ywacr.azurecr.io/collector:v19
+          ports:
+            - containerPort: 8001
+          env:
+            - name: COSMOS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-cosmos-secret
+                  key: cosmos-connection-string
+            - name: COSMOS_DB_DATABASE
+              value: "changetrace-graph"
+            - name: COSMOS_DB_GRAPH
+              value: "dependency-graph"
+            - name: DEFAULT_TENANT_ID
+              value: "demo-tenant"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: KEY_VAULT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-keyvault-secret
+                  key: vault-url
+            - name: AZURE_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-keyvault-secret
+                  key: tenant-id
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-keyvault-secret
+                  key: client-id
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: LEADER_LEASE_NAME
+              value: "changetrace-collector-leader"
+            - name: LEADER_LEASE_NAMESPACE
+              value: "changetrace"
+            - name: LEADER_LEASE_DURATION_SECONDS
+              value: "15"
+            - name: LEADER_RENEW_INTERVAL_SECONDS
+              value: "5"
+            - name: EVENTGRID_CICD_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-eventgrid-secret
+                  key: cicd-endpoint
+            - name: EVENTGRID_GIT_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-eventgrid-secret
+                  key: git-endpoint
+            - name: K8S_IN_CLUSTER
+              value: "true"
+            - name: K8S_CLUSTER_ID
+              value: "changetrace-dev-aks"
+            - name: K8S_NAMESPACES
+              value: "[\"changetrace\"]"
+            - name: GRAPH_BUILDER_URL
+              value: "http://changetrace-graph-builder:8004"
+            - name: INTERNAL_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-internal-secret
+                  key: internal-auth-token
+            - name: LOG_LEVEL
+              value: "info"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: changetrace-collector
+  namespace: changetrace
+  labels:
+    app: changetrace-collector
+spec:
+  ports:
+    - port: 8001
+      targetPort: 8001
+      name: http
+  selector:
+    app: changetrace-collector

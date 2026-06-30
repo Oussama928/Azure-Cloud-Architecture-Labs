@@ -1,8 +1,4 @@
-"""
-Model Monitoring and Drift Detection for ChangeTrace.
-
-Tracks model performance, data drift, and prediction distributions.
-"""
+"""Model Monitoring and Drift Detection for ChangeTrace."""
 
 import asyncio
 import json
@@ -63,14 +59,7 @@ class PredictionRecord:
 
 
 class DriftDetector:
-    """
-    Statistical drift detection for model inputs and predictions.
-    
-    Uses multiple methods:
-    - Population Stability Index (PSI) for feature distributions
-    - Kolmogorov-Smirnov test for distribution changes
-    - Prediction distribution monitoring
-    """
+    """Statistical drift detection for model inputs and predictions."""
     
     def __init__(
         self,
@@ -115,13 +104,7 @@ class DriftDetector:
         current: List[float],
         bins: int = 10,
     ) -> float:
-        """
-        Compute Population Stability Index (PSI).
-        
-        PSI < 0.1: No significant change
-        0.1 <= PSI < 0.2: Moderate change
-        PSI >= 0.2: Significant change
-        """
+        """Compute Population Stability Index (PSI)."""
         if len(reference) < self.min_samples or len(current) < self.min_samples:
             return 0.0
         
@@ -151,12 +134,7 @@ class DriftDetector:
         reference: List[float],
         current: List[float],
     ) -> Tuple[float, float]:
-        """
-        Compute Kolmogorov-Smirnov test statistic and p-value.
-        
-        Returns:
-            (ks_statistic, p_value)
-        """
+        """Compute Kolmogorov-Smirnov test statistic and p-value."""
         if len(reference) < self.min_samples or len(current) < self.min_samples:
             return 0.0, 1.0
         
@@ -244,15 +222,7 @@ class DriftDetector:
 
 
 class PerformanceMonitor:
-    """
-    Monitor model performance metrics over time.
-    
-    Tracks:
-    - Accuracy, precision, recall, F1 (when labels available)
-    - Prediction latency
-    - Prediction distribution
-    - Calibration metrics
-    """
+    """Monitor model performance metrics over time."""
     
     def __init__(
         self,
@@ -361,9 +331,15 @@ class PerformanceMonitor:
         metrics = self.compute_metrics()
         
         # Accuracy drop alert
-        if "accuracy" in metrics:
-            #  placeholder for now
-            pass
+        if "accuracy" in metrics and metrics["accuracy"] < self.alert_thresholds.get("min_accuracy", 0.70):
+            alerts.append(ModelAlert(
+                model_name=self.model_name,
+                alert_type="low_accuracy",
+                severity=AlertSeverity.CRITICAL,
+                message=f"Model accuracy {metrics['accuracy']:.2f} fell below threshold",
+                metric_value=metrics["accuracy"],
+                threshold=self.alert_thresholds.get("min_accuracy", 0.70),
+            ))
         
         # Latency alert
         if metrics.get("latency_p99_ms", 0) > self.alert_thresholds.get("latency_p99_ms", 5000):
@@ -391,9 +367,7 @@ class PerformanceMonitor:
 
 
 class ModelMonitor:
-    """
-    Unified model monitoring combining drift detection and performance monitoring.
-    """
+    """Unified model monitoring combining drift detection and performance monitoring."""
     
     def __init__(
         self,

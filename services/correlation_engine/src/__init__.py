@@ -1,9 +1,5 @@
-"""
-Correlation Engine Service
+"""Correlation Engine Service."""
 
-Correlates incidents with recent changes to identify root causes.
-"""
+from .correlator import Correlator
 
-from .correlator import IncidentCorrelator
-
-__all__ = ["IncidentCorrelator"]
+__all__ = ["Correlator"]

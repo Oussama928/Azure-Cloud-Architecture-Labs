@@ -2,7 +2,6 @@
 Activity: Notify Teams (Approval Requests, Escalations)
 
 Sends notifications via Teams webhook, email, or other channels.
-Supports approval requests with approve/reject buttons.
 """
 
 import json
@@ -19,34 +18,12 @@ logger = logging.getLogger(__name__)
 async def main(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Send notification for approval request or escalation.
-
-    Input:
-    {
-        "workflow_id": "wf-123",
-        "incident_id": "INC-123",
-        "title": "Incident INC-123: Approve remediation for payment-service",
-        "description": "High-confidence root cause identified...",
-        "details": {...},
-        "expires_at": "2024-01-15T10:30:00Z",
-        "callback_url": "https://func.azurewebsites.net/api/approval/token",
-        "token": "secure-token",
-        "notification_type": "approval_request" | "escalation"
-    }
-
-    Output:
-    {
-        "sent": true,
-        "channels": ["teams", "email"],
-        "approval_url": "https://...",
-        "reject_url": "https://..."
-    }
     """
     workflow_id = activity_input.get("workflow_id")
     notification_type = activity_input.get("notification_type", "approval_request")
 
     logger.info(f"Sending {notification_type} notification for workflow {workflow_id}")
 
-    # Generate signed approval URLs
     token = activity_input.get("token")
     callback_base = activity_input.get("callback_url")
     expires_at = activity_input.get("expires_at")
@@ -57,19 +34,17 @@ async def main(activity_input: dict[str, Any]) -> dict[str, Any]:
     approve_url = f"{callback_base}?token={token}&decision=approve"
     reject_url = f"{callback_base}?token={token}&decision=reject"
 
-    # Send to Teams
     teams_sent = await _send_teams_notification(
         activity_input, approve_url, reject_url, expires_at
     )
 
-    # Send email (placeholder)
     email_sent = await _send_email_notification(
         activity_input, approve_url, reject_url, expires_at
     )
 
     return {
         "sent": teams_sent or email_sent,
-        "channels": ["teams"] if teams_sent else [] + (["email"] if email_sent else []),
+        "channels": (["teams"] if teams_sent else []) + (["email"] if email_sent else []),
         "approval_url": approve_url,
         "reject_url": reject_url,
         "expires_at": expires_at
@@ -194,7 +169,6 @@ def _build_approval_card(
     description = activity_input.get("description", "")
     details = activity_input.get("details", {})
 
-    # Extract key details
     top_candidate = details.get("top_candidate", {})
     confidence = details.get("confidence", 0)
     blast_radius = details.get("blast_radius", {})

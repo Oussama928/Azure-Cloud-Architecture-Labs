@@ -1,12 +1,7 @@
 """
-Azure Resource Graph Source Collector for ChangeTrace
+Azure Resource Graph Source Collector for ChangeTrace.
 
-Collects change events from Azure Resource Graph:
-- Resource create/update/delete operations
-- Policy compliance changes
-- Resource property changes
-
-Queries Azure Resource Graph for recent changes and converts to ChangeEvents.
+Collects change events from Azure Resource Graph and converts them to ChangeEvents.
 """
 
 import asyncio
@@ -16,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from azure.identity import DefaultAzureCredential
+from azure.mgmt.monitor import MonitorManagementClient
 from azure.mgmt.resourcegraph import ResourceGraphClient
 from azure.mgmt.resourcegraph.models import QueryRequest, QueryRequestOptions
 from pydantic import BaseModel, Field
@@ -26,7 +22,6 @@ from ..models.change_event import (
     ChangeSource,
     ChangeStatus,
     ChangeType,
-    ResourceReference,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,16 +55,12 @@ class AzureResourceGraphConfig(BaseModel):
 
 
 class AzureResourceGraphSource:
-    """
-    Azure Resource Graph change event collector.
-
-    Queries Resource Graph for resource changes and converts to ChangeEvents.
-    Uses Azure Activity Log / Resource Graph change tracking.
-    """
+    """Azure Resource Graph change event collector."""
 
     def __init__(self, config: AzureResourceGraphConfig):
         self.config = config
         self._client: ResourceGraphClient | None = None
+        self._monitor_client: MonitorManagementClient | None = None
         self._credential = DefaultAzureCredential()
         self._last_query_time: datetime | None = None
 
@@ -78,6 +69,16 @@ class AzureResourceGraphSource:
         self._client = ResourceGraphClient(
             credential=self._credential,
         )
+        # Monitor client needed for Activity Log queries
+        try:
+            from azure.common import AzureException
+            self._monitor_client = MonitorManagementClient(
+                credential=self._credential,
+                subscription_id=self.config.subscription_ids[0] if self.config.subscription_ids else "",
+            )
+        except Exception as e:
+            logger.warning(f"Could not initialize Monitor client (Activity Log unavailable): {e}")
+            self._monitor_client = None
         logger.info("Initialized Azure Resource Graph client")
 
     async def close(self) -> None:
@@ -87,7 +88,6 @@ class AzureResourceGraphSource:
 
     def _build_query(self, since: datetime) -> str:
         """Build KQL query for resource changes"""
-        # Base query for resource changes
         query_parts = [
             "resources",
             f"| where timestamp >= datetime({since.isoformat()}Z)",
@@ -142,7 +142,6 @@ class AzureResourceGraphSource:
             changedTime
         """)
 
-        # Order by time
         query_parts.append("| order by timestamp desc")
 
         return " ".join(query_parts)
@@ -195,10 +194,20 @@ class AzureResourceGraphSource:
 
     async def query_activity_log(self, since: datetime) -> list[dict[str, Any]]:
         """Query Activity Log for detailed change events"""
-        # This requires Log Analytics workspace with Activity Log
-        # For now, will return empty , will implement later
-        logger.debug("Activity Log query not yet implemented")
-        return []
+        if not self._monitor_client:
+            logger.debug("Activity Log unavailable: no Monitor client")
+            return []
+        try:
+            filter_str = f"eventTimestamp ge {since.isoformat()}Z"
+            events = []
+            # Activity Logs are retained for 90 days
+            async for event in self._monitor_client.activity_logs.list(filter=filter_str):
+                events.append(event.as_dict())
+            logger.info(f"Activity Log: found {len(events)} events since {since}")
+            return events
+        except Exception as e:
+            logger.error(f"Activity Log query failed: {e}")
+            return []
 
     def resource_to_change_event(self, resource: dict[str, Any]) -> ChangeEvent | None:
         """Convert Resource Graph resource to ChangeEvent"""
@@ -215,9 +224,6 @@ class AzureResourceGraphSource:
         tags = resource.get("tags", {})
         properties = resource.get("properties", {})
         identity = resource.get("identity", {})
-        resource.get("sku", {})
-        resource.get("kind", "")
-        resource.get("managedBy", "")
         etag = resource.get("etag", "")
         timestamp_str = resource.get("timestamp") or resource.get("changedTime")
 
@@ -229,23 +235,10 @@ class AzureResourceGraphSource:
             except:
                 timestamp = datetime.utcnow()
 
-        # Infer service name from resource
         service_name = self._infer_service_name(resource)
 
-        # Determine environment from tags or resource group
         environment = self._infer_environment(resource)
 
-        # Build resource reference
-        ResourceReference(
-            api_version="",  # Would need to look up
-            kind=resource_type,
-            name=resource_name,
-            resource_group=resource_group,
-            resource_type=resource_type,
-            resource_id=resource_id,
-        )
-
-        # Build Azure change detail
         azure_change = AzureResourceChangeDetail(
             resource_id=resource_id,
             resource_type=resource_type,
@@ -257,7 +250,6 @@ class AzureResourceGraphSource:
             identity_delta=identity,
         )
 
-        # Determine change type
         change_type = ChangeType.INFRASTRUCTURE_CHANGE
 
         return ChangeEvent(
@@ -300,6 +292,7 @@ class AzureResourceGraphSource:
 
         # Common patterns: service-name-xxx, xxx-service-name, etc.
         # Remove common suffixes/prefixes
+        original_name = name
         for prefix in ["app-", "svc-", "service-", "workload-"]:
             if name.startswith(prefix):
                 name = name[len(prefix):]
@@ -307,6 +300,9 @@ class AzureResourceGraphSource:
         for suffix in ["-app", "-svc", "-service", "-workload", "-prod", "-staging", "-dev"]:
             if name.endswith(suffix):
                 name = name[:-len(suffix)]
+
+        if name and name != original_name:
+            return name
 
         # Use resource group as fallback
         rg = resource.get("resourceGroup", "")

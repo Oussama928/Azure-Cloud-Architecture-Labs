@@ -1,21 +1,8 @@
 # ACR Module Outputs
-
-output "container_registry_id" {
-  description = "Container Registry Resource ID"
-  value       = azurerm_container_registry.main.id
-}
-
-output "container_registry_name" {
-  description = "Container Registry Name"
-  value       = azurerm_container_registry.main.name
-}
-
-output "container_registry_login_server" {
-  description = "Container Registry Login Server"
-  value       = azurerm_container_registry.main.login_server
-}
+# Note: Most outputs are defined in main.tf.
+# This file contains additional outputs only.
 
 output "container_registry_identity_principal_id" {
   description = "Container Registry Managed Identity Principal ID"
-  value       = azurerm_container_registry.main.identity[0].principal_id
+  value       = var.enable_acr ? azurerm_container_registry.main[0].identity[0].principal_id : ""
 }

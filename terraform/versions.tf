@@ -1,3 +1,2 @@
 # Terraform provider versions for ChangeTrace
-# Note: required_providers and provider configurations are in main.tf
-# This file is kept for reference only
+# Note: required_providers is defined in main.tf to avoid duplication

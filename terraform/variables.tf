@@ -1,5 +1,3 @@
-# Terraform variables for ChangeTrace
-
 variable "location" {
   description = "Azure region for all resources"
   type        = string
@@ -89,4 +87,34 @@ variable "github_actions_sp_object_id" {
   description = "Object ID of the GitHub Actions service principal for Key Vault access"
   type        = string
   default     = ""
+}
+
+variable "enable_hardening" {
+  description = "Enable production hardening (private endpoints, network policies, TLS certs)"
+  type        = bool
+  default     = false
+}
+
+variable "vnet_id" {
+  description = "Virtual Network ID for private endpoints and DNS zone links"
+  type        = string
+  default     = ""
+}
+
+variable "subnet_id" {
+  description = "Subnet ID for private endpoints and NSG association"
+  type        = string
+  default     = ""
+}
+
+variable "allowed_ip_ranges" {
+  description = "Allowed IP ranges for network security group rules"
+  type        = list(string)
+  default     = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+}
+
+variable "dns_names" {
+  description = "DNS names for TLS certificates"
+  type        = list(string)
+  default     = []
 }

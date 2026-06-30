@@ -2,7 +2,6 @@
 Evaluation Harness for ChangeTrace
 
 Computes precision, recall, and other metrics from labeled validation runs.
-Uses Chaos Studio experiments as ground truth.
 """
 
 import json
@@ -21,14 +20,6 @@ logger = logging.getLogger(__name__)
 class EvaluationHarness:
     """
     Evaluates correlation engine accuracy against known-cause faults.
-    
-    Metrics:
-    - Precision@1: Top-ranked candidate is the true cause
-    - Precision@3: True cause appears in top 3
-    - Recall: Fraction of incidents where true cause is in candidate set
-    - MTTD: Mean time to detection
-    - MRR: Mean reciprocal rank
-    - NDCG: Normalized discounted cumulative gain
     """
     
     def __init__(self, results_dir: str = "chaos/results"):
@@ -48,19 +39,7 @@ class EvaluationHarness:
     ) -> Dict[str, Any]:
         """
         Add a validation result from a chaos experiment.
-        
-        Args:
-            experiment_id: Chaos Studio experiment run ID
-            fault_type: Type of fault injected (pod_failure, cpu_pressure, etc.)
-            target_service: Service that was targeted
-            injected_at: When the fault was injected
-            correlation_results: Ranked candidates from correlation engine
-            detection_time_seconds: Time from injection to correlation completion
-            
-        Returns:
-            Evaluation metrics for this run
         """
-        # Find the true cause in ranked candidates
         true_cause_rank = None
         true_cause_confidence = None
         
@@ -71,14 +50,14 @@ class EvaluationHarness:
                 true_cause_confidence = candidate.get("confidence_score", 0)
                 break
         
-        # Compute metrics
         precision_at_1 = 1.0 if true_cause_rank == 1 else 0.0
         precision_at_3 = 1.0 if true_cause_rank and true_cause_rank <= 3 else 0.0
         recall = 1.0 if true_cause_rank else 0.0
         mrr = 1.0 / true_cause_rank if true_cause_rank else 0.0
         
-        # NDCG@3
-        ndcg_3 = self._compute_ndcg(correlation_results, true_cause_rank, k=3)
+        y_true = [1 if self._is_true_cause(c, fault_type, target_service) else 0 for c in correlation_results]
+        y_scores = [c.get("confidence_score", 0) for c in correlation_results]
+        ndcg_3 = self._compute_ndcg(y_true, y_scores, k=3)
         
         result = {
             "experiment_id": experiment_id,
@@ -114,11 +93,9 @@ class EvaluationHarness:
         target_service: str,
     ) -> bool:
         """Check if candidate matches the injected fault."""
-        # Match by service name
         if candidate.get("service_name") != target_service:
             return False
         
-        # Match by change type based on fault type
         fault_to_change_type = {
             "pod_failure": "code_deployment",  # Pod failure often from bad deploy
             "cpu_pressure": "code_deployment",  # CPU pressure from new code
@@ -130,38 +107,18 @@ class EvaluationHarness:
         
         expected_change_type = fault_to_change_type.get(fault_type, "code_deployment")
         if candidate.get("change_type") != expected_change_type:
-            # Allow some flexibility
-            pass
+            return False
         
         # Check if timestamp is close to injection time
         # (would need injected_at for precise matching)
         
         return True  # Simplified - in reality would do more precise matching
     
-    def _compute_ndcg(
-        self,
-        candidates: List[Dict[str, Any]],
-        true_rank: Optional[int],
-        k: int = 3,
-    ) -> float:
-        """Compute Normalized Discounted Cumulative Gain at k."""
-        if not true_rank or true_rank > k:
-            return 0.0
-        
-        # DCG: relevance is 1 for true cause, 0 otherwise
-        dcg = 1.0 / np.log2(true_rank + 1)
-        
-        # IDCG: ideal ranking has true cause at position 1
-        idcg = 1.0 / np.log2(2)
-        
-        return dcg / idcg if idcg > 0 else 0.0
-    
     def _precision_at_k(self, y_true: List[int], y_scores: List[float], k: int) -> float:
         """Compute Precision@k."""
         if len(y_true) == 0 or k == 0:
             return 0.0
         
-        # Get top-k indices by score
         top_k_indices = np.argsort(y_scores)[::-1][:k]
         top_k_true = [y_true[i] for i in top_k_indices]
         
@@ -172,11 +129,9 @@ class EvaluationHarness:
         if len(y_true) == 0:
             return 0.0
         
-        # Sort by score descending
         sorted_indices = np.argsort(y_scores)[::-1]
         y_true_sorted = [y_true[i] for i in sorted_indices]
         
-        # Find first positive
         for i, val in enumerate(y_true_sorted):
             if val == 1:
                 return 1.0 / (i + 1)
@@ -188,7 +143,6 @@ class EvaluationHarness:
         if len(y_true) == 0 or k == 0:
             return 0.0
         
-        # Sort by score descending
         sorted_indices = np.argsort(y_scores)[::-1]
         y_true_sorted = [y_true[i] for i in sorted_indices]
         
@@ -381,8 +335,6 @@ def run_statistical_significance_test(
 ) -> Dict[str, Any]:
     """
     Run statistical significance test between two sets of results.
-    
-    Uses Mann-Whitney U test (non-parametric) for comparing distributions.
     """
     values_a = [r[metric] for r in results_a if metric in r]
     values_b = [r[metric] for r in results_b if metric in r]

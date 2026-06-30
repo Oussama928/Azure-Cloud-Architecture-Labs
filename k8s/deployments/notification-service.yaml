@@ -1,30 +1,12 @@
-apiVersion: argoproj.io/v1alpha1
-kind: Rollout
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: notification-service
   namespace: changetrace
   labels:
     app: notification-service
-    component: notification
 spec:
-  replicas: 3
-  strategy:
-    canary:
-      steps:
-        - setWeight: 10
-        - pause: {duration: 5m}
-        - setWeight: 50
-        - pause: {duration: 5m}
-        - setWeight: 100
-      canaryMetadata:
-        labels:
-          role: canary
-      stableMetadata:
-        labels:
-          role: stable
-      trafficRouting:
-        nginx:
-          stableIngress: notification-service-ingress
+  replicas: 1
   selector:
     matchLabels:
       app: notification-service
@@ -32,21 +14,26 @@ spec:
     metadata:
       labels:
         app: notification-service
-        component: notification
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8080"
     spec:
+      imagePullSecrets:
+        - name: acr-pull-secret
       containers:
         - name: notification-service
-          image: changetrace/notification-service:latest
+          image: changetrace29r2ywacr.azurecr.io/demo_app:latest
           ports:
             - containerPort: 8080
           env:
             - name: SERVICE_NAME
               value: "notification-service"
+            - name: DEPENDENCIES
+              value: '[]'
+            - name: PORT
+              value: "8080"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: "http://otel-collector.changetrace.svc.cluster.local:4317"
+              value: "http://otel-collector.changetrace.svc.cluster.local:4318"
             - name: LOG_LEVEL
               valueFrom:
                 configMapKeyRef:
@@ -70,7 +57,7 @@ spec:
               path: /health
               port: 8080
             initialDelaySeconds: 15
-            periodSeconds: 20
+            periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service
@@ -86,25 +73,3 @@ spec:
       name: http
   selector:
     app: notification-service
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: notification-service-ingress
-  namespace: changetrace
-  annotations:
-    nginx.ingress.kubernetes.io/canary: "true"
-    nginx.ingress.kubernetes.io/canary-weight: "0"
-spec:
-  ingressClassName: nginx
-  rules:
-    - host: notification.changetrace.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: notification-service
-                port:
-                  number: 80

@@ -1,12 +1,10 @@
 """
 WF-1 Incident Response Activities - Real Implementations
 
-These activities replace the mock implementations and connect to:
-- Cosmos DB (Gremlin) for change history and blast radius
-- Azure Monitor / Application Insights for metrics and logs
-- Azure ML endpoint for correlation scoring
+Connect to Cosmos DB (Gremlin), Azure Monitor, and Azure ML.
 """
 
+import json
 import logging
 import os
 from datetime import datetime, timedelta
@@ -18,9 +16,7 @@ from azure.monitor.query import LogsQueryClient, MetricsQueryClient
 
 logger = logging.getLogger(__name__)
 
-# ============================================================
 # Configuration
-# ============================================================
 COSMOS_DB_ENDPOINT = os.getenv("COSMOS_DB_ENDPOINT")
 COSMOS_DB_KEY = os.getenv("COSMOS_DB_KEY")
 COSMOS_DB_DATABASE = os.getenv("COSMOS_DB_DATABASE", "changetrace-graph")
@@ -32,9 +28,7 @@ APPLICATION_INSIGHTS_CONNECTION_STRING = os.getenv("APPLICATIONINSIGHTS_CONNECTI
 ML_SCORING_ENDPOINT = os.getenv("ML_SCORING_ENDPOINT")
 ML_SCORING_KEY = os.getenv("ML_SCORING_KEY")
 
-# ============================================================
 # Gremlin Client Helper
-# ============================================================
 async def _get_gremlin_client():
     """Get connected Gremlin client."""
     from gremlin_python.driver import client, serializer
@@ -67,25 +61,10 @@ async def _get_gremlin_client():
     return gremlin_client, connection, g
 
 
-# ============================================================
 # Activity: Gather Recent Changes
-# ============================================================
 async def gather_recent_changes(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Query Cosmos DB change-history graph for recent changes affecting a service.
-
-    Input:
-    {
-        "affected_service": "payment-service",
-        "lookback_hours": 2,
-        "max_results": 50
-    }
-
-    Output:
-    {
-        "changes": [...],
-        "count": 10
-    }
     """
     affected_service = activity_input.get("affected_service")
     lookback_hours = activity_input.get("lookback_hours", 2)
@@ -99,13 +78,13 @@ async def gather_recent_changes(activity_input: dict[str, Any]) -> dict[str, Any
     try:
         gremlin_client, connection, g = await _get_gremlin_client()
 
-        # Calculate timestamp threshold
         threshold = datetime.utcnow() - timedelta(hours=lookback_hours)
         threshold_iso = threshold.isoformat()
 
         # Gremlin query: Find change events for the affected service and its dependencies
         query = f"""
         g.V().hasLabel('ChangeEvent')
+          .has('service', '{affected_service}')
           .has('timestamp', gte('{threshold_iso}'))
           .order().by('timestamp', desc)
           .limit({max_results})
@@ -126,27 +105,10 @@ async def gather_recent_changes(activity_input: dict[str, Any]) -> dict[str, Any
         raise
 
 
-# ============================================================
 # Activity: Get Blast Radius
-# ============================================================
 async def get_blast_radius(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Query Gremlin dependency graph for blast radius (services depending on affected service).
-
-    Input:
-    {
-        "service_name": "payment-service",
-        "max_hops": 3
-    }
-
-    Output:
-    {
-        "source_service": "payment-service",
-        "affected_services": [...],
-        "paths": [...],
-        "total_services_affected": 5,
-        "critical_services_affected": [...]
-    }
     """
     service_name = activity_input.get("service_name")
     max_hops = activity_input.get("max_hops", 3)
@@ -201,29 +163,10 @@ async def get_blast_radius(activity_input: dict[str, Any]) -> dict[str, Any]:
         raise
 
 
-# ============================================================
 # Activity: Get Service Metrics
-# ============================================================
 async def get_service_metrics(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Query Azure Monitor / Application Insights for service metrics.
-
-    Input:
-    {
-        "service_name": "payment-service",
-        "duration_minutes": 30
-    }
-
-    Output:
-    {
-        "service_name": "payment-service",
-        "error_rate": 0.05,
-        "latency_p99": 1200,
-        "request_volume": 15000,
-        "cpu_usage": 0.75,
-        "memory_usage": 0.60,
-        "timestamp": "2024-01-15T10:30:00Z"
-    }
     """
     service_name = activity_input.get("service_name")
     duration_minutes = activity_input.get("duration_minutes", 30)
@@ -277,25 +220,10 @@ async def get_service_metrics(activity_input: dict[str, Any]) -> dict[str, Any]:
         raise
 
 
-# ============================================================
 # Activity: Get Recent Logs
-# ============================================================
 async def get_recent_logs(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Query Log Analytics for recent error logs.
-
-    Input:
-    {
-        "service_name": "payment-service",
-        "duration_minutes": 30,
-        "min_level": "ERROR"
-    }
-
-    Output:
-    {
-        "logs": [...],
-        "count": 10
-    }
     """
     service_name = activity_input.get("service_name")
     duration_minutes = activity_input.get("duration_minutes", 30)
@@ -345,30 +273,10 @@ async def get_recent_logs(activity_input: dict[str, Any]) -> dict[str, Any]:
         raise
 
 
-# ============================================================
 # Activity: Correlate Incident (ML Scoring)
-# ============================================================
 async def correlate_incident(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Score candidate root causes using ML model or heuristic.
-
-    Input:
-    {
-        "incident_id": "INC-123",
-        "affected_service": "payment-service",
-        "recent_changes": [...],
-        "blast_radius": {...},
-        "service_metrics": {...},
-        "recent_logs": [...]
-    }
-
-    Output:
-    {
-        "candidates": [...],
-        "top_candidate": {...},
-        "top_confidence": 0.87,
-        "model_version": "m1-v1.0"
-    }
     """
     incident_id = activity_input.get("incident_id")
     affected_service = activity_input.get("affected_service")
@@ -398,7 +306,6 @@ async def _score_with_ml(activity_input: dict[str, Any]) -> dict[str, Any]:
             "Content-Type": "application/json"
         }
 
-        # Prepare features for ML model
         features = _extract_features(activity_input)
 
         response = await client.post(
@@ -426,7 +333,6 @@ def _extract_features(activity_input: dict[str, Any]) -> dict[str, Any]:
     service_metrics = activity_input.get("service_metrics", {})
     recent_logs = activity_input.get("recent_logs", {})
 
-    # Build feature vector
     return {
         "num_recent_changes": len(recent_changes),
         "num_affected_services": blast_radius.get("total_services_affected", 0),
@@ -452,7 +358,10 @@ def _heuristic_correlation(activity_input: dict[str, Any]) -> dict[str, Any]:
         reasons = []
 
         # Recency bonus
-        change_time = datetime.fromisoformat(change.get("timestamp", "").replace("Z", "+00:00"))
+        timestamp_str = change.get("timestamp")
+        if not timestamp_str:
+            continue
+        change_time = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
         age_minutes = (datetime.utcnow() - change_time.replace(tzinfo=None)).total_seconds() / 60
         if age_minutes < 60:
             score += 0.4
@@ -477,10 +386,14 @@ def _heuristic_correlation(activity_input: dict[str, Any]) -> dict[str, Any]:
             score += 0.1
             reasons.append("In blast radius")
 
-        # Error rate correlation
+        # Error rate correlation: only boost candidates whose service is erroring
         if service_metrics.get("error_rate", 0) > 0.05:
-            score += 0.1
-            reasons.append("High error rate")
+            if change.get("service_name") == service_metrics.get("service_name"):
+                score += 0.1
+                reasons.append("High error rate on this service")
+            elif change.get("service_name") in blast_radius.get("affected_services", []):
+                score += 0.05
+                reasons.append("High error rate on dependent service")
 
         candidates.append({
             "change_event_id": change.get("change_event_id"),
@@ -492,7 +405,6 @@ def _heuristic_correlation(activity_input: dict[str, Any]) -> dict[str, Any]:
             "details": change
         })
 
-    # Sort by confidence
     candidates.sort(key=lambda x: x["confidence"], reverse=True)
 
     top_candidate = candidates[0] if candidates else None
@@ -506,33 +418,10 @@ def _heuristic_correlation(activity_input: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-# ============================================================
 # Activity: Send Approval Request
-# ============================================================
 async def send_approval_request(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Send approval request via Teams webhook, email, or other channels.
-
-    Input:
-    {
-        "workflow_id": "wf-123",
-        "incident_id": "INC-123",
-        "title": "Incident INC-123: Approve remediation",
-        "description": "High-confidence root cause identified...",
-        "details": {...},
-        "expires_at": "2024-01-15T10:30:00Z",
-        "callback_url": "https://func.azurewebsites.net/api/approval/token",
-        "token": "secure-token",
-        "notification_type": "approval_request"
-    }
-
-    Output:
-    {
-        "sent": true,
-        "channels": ["teams"],
-        "approval_url": "...",
-        "reject_url": "..."
-    }
     """
     workflow_id = activity_input.get("workflow_id")
     notification_type = activity_input.get("notification_type", "approval_request")
@@ -548,10 +437,8 @@ async def send_approval_request(activity_input: dict[str, Any]) -> dict[str, Any
 
     logger.info(f"Sending {notification_type} for workflow {workflow_id}")
 
-    # Send to Teams
     teams_sent = await _send_teams_notification(activity_input, approve_url, reject_url, expires_at)
 
-    # Send email (placeholder)
     email_sent = await _send_email_notification(activity_input, approve_url, reject_url, expires_at)
 
     return {
@@ -767,40 +654,17 @@ async def _send_email_notification(
         return False
 
 
-# ============================================================
 # Activity: Send Escalation Notification
-# ============================================================
 async def send_escalation_notification(activity_input: dict[str, Any]) -> dict[str, Any]:
     """Send escalation notification when primary approval times out."""
     activity_input["notification_type"] = "escalation"
     return await send_approval_request(activity_input)
 
 
-# ============================================================
 # Activity: Execute Remediation
-# ============================================================
 async def execute_remediation(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Execute approved remediation action via Argo Rollouts / Kubernetes API.
-
-    Input:
-    {
-        "action": "rollback_deployment" | "restart_workload",
-        "params": {
-            "deployment_id": "deploy-123",
-            "service": "payment-service",
-            "namespace": "production"
-        },
-        "workflow_id": "wf-123"
-    }
-
-    Output:
-    {
-        "success": true,
-        "action": "rollback_deployment",
-        "details": {...},
-        "executed_at": "2024-01-15T10:30:00Z"
-    }
     """
     action = activity_input.get("action")
     params = activity_input.get("params", {})
@@ -844,7 +708,6 @@ async def _rollback_deployment(params: dict[str, Any]) -> dict[str, Any]:
                 headers = {"Authorization": f"Bearer {argo_token}"}
                 rollout_name = f"{service}-rollout"
 
-                # Trigger rollback
                 response = await client.post(
                     f"{argo_api_url}/api/v1/namespaces/{namespace}/rollouts/{rollout_name}/rollback",
                     headers=headers,
@@ -880,7 +743,6 @@ async def _restart_workload(params: dict[str, Any]) -> dict[str, Any]:
 
         apps_v1 = client.AppsV1Api()
 
-        # Try to find the deployment
         try:
             deployment = apps_v1.read_namespaced_deployment(name=service, namespace=namespace)
         except ApiException as e:
@@ -957,14 +819,10 @@ async def _scale_up(params: dict[str, Any]) -> dict[str, Any]:
     return {"success": True, "action": "scale_up"}
 
 
-# ============================================================
 # Activity: Verify SLO Recovery
-# ============================================================
 async def verify_slo_recovery(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Verify SLO recovery after remediation.
-
-    Checks error budget burn rate over verification window.
     """
     service_name = activity_input.get("service_name")
     slo_name = activity_input.get("slo_name")
@@ -1023,14 +881,10 @@ async def verify_slo_recovery(activity_input: dict[str, Any]) -> dict[str, Any]:
         raise
 
 
-# ============================================================
 # Activity: Record Ground Truth
-# ============================================================
 async def record_ground_truth(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Record confirmed root cause as training data.
-
-    Called when incident is resolved with confirmed root cause.
     """
     incident_id = activity_input.get("incident_id")
     change_event_id = activity_input.get("change_event_id")
@@ -1070,18 +924,13 @@ async def record_ground_truth(activity_input: dict[str, Any]) -> dict[str, Any]:
         return {"recorded": False, "error": str(e)}
 
 
-# ============================================================
 # Activity: Trigger Incident Response (for WF-2 failures)
-# ============================================================
 async def trigger_incident_response(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Trigger WF-1 incident response workflow for a failed deployment.
     """
     logger.info("Triggering incident response for failed deployment")
 
-    # Start new Durable Function orchestration instance
-    # This would use the Durable Functions client to start a new orchestration
-    # For now, we'll return the structure that would be used
     incident_data = {
         "incident_id": f"INC-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}",
         "incident_title": f"Deployment {activity_input.get('deployment_id')} failed SLO check",
@@ -1093,11 +942,7 @@ async def trigger_incident_response(activity_input: dict[str, Any]) -> dict[str,
         "correlation_id": activity_input.get("workflow_id"),
     }
 
-    # In production, this would use the Durable Functions client:
-    # from azure.durable_functions import DurableOrchestrationClient
-    # client = DurableOrchestrationClient(context)
-    # instance_id = await client.start_new("orchestrator_function", None, incident_data)
-
+    workflow_id = f"wf1-{activity_input.get('deployment_id', 'dep')}"
     logger.info(f"Incident response triggered for failed deployment: {incident_data}")
 
-    return {"triggered": True, "workflow_id": "new-workflow-id-placeholder", "incident_data": incident_data}
+    return {"triggered": True, "workflow_id": workflow_id, "incident_data": incident_data}

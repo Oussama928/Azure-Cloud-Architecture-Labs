@@ -215,6 +215,10 @@ override.tf.json
 # Terraform module cache (generated during init)
 .terraform/modules/
 .terraform/providers/
+# Provider binaries cached beside .terraform (macOS/linux zips) - never commit
+terraform/providers/
+# Bare terraform plan files (no extension)
+**/tfplan
 
 # Azure / Cloud
 .azure/
@@ -382,4 +386,57 @@ htmlcov/
 
 README.md
 
+# ==========================================
+# Caches, temp files & generated artifacts
+# ==========================================
 
+# Generic cache directories (any depth)
+**/.cache/
+.cache/
+*.cache
+**/.eslintcache
+**/.stylelintcache
+**/.parcel-cache/
+**/.sass-cache/
+**/.scss-cache/
+**/.turbo/
+**/.vite/
+**/.vitest/
+**/.pylint.d/
+**/.hypothesis/
+
+# Language build caches (in case any land in the repo)
+**/.gradle/
+**/.m2/
+**/.ivy2/
+**/.sbt/
+**/.cargo/registry/
+**/.cargo/git/
+**/.stack-work/
+**/.dub/
+
+# macOS Finder / APFS artifacts
+.AppleDouble
+.LSOverride
+Icon?
+.Spotlight-V100
+.Trashes
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Patch / merge leftovers
+*.orig
+*.rej
+
+# Generated chaos experiment output
+chaos/results/
+
+# Scratch/POC sandbox (kept locally, never committed)
+testing/
+
+
+
+
+docs/

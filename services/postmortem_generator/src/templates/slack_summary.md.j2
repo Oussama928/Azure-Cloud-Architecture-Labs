@@ -1,0 +1,7 @@
+:rotating_light: **<{{ metadata.incident_id }}>** | {{ metadata.severity | upper }} | {{ metadata.status | title }}
+
+**Title:** {{ metadata.title }}
+**Service:** {{ metadata.affected_service }}
+**Root Cause:** {{ root_cause_analysis.top_candidate.service_name | default('N/A') }} ({{ "%.0f" | format(root_cause_analysis.correlation_confidence * 100) }}% confidence)
+**Remediation:** {{ remediation.action | default('N/A') }}
+**SLO Recovered:** {{ 'Yes' if verification.slo_recovered else 'No' }}

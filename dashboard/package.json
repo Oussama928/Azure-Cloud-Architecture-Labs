@@ -4,30 +4,31 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@tanstack/react-query": "^5.101.4",
     "@types/d3": "^7.4.3",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
-    "@types/react-router-dom": "^5.3.3",
     "axios": "^1.6.0",
     "d3": "^7.8.5",
-    "date-fns": "^2.30.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-query": "^3.39.3",
     "react-router-dom": "^7.18.1",
     "recharts": "^2.10.0",
-    "typescript": "^5.2.2",
-    "zustand": "^4.4.0"
+    "typescript": "^5.2.2"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.0",
-    "@vitest/coverage-v8": "^3.2.4",
-    "vite": "^5.0.0",
-    "eslint": "^8.56.0",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
+    "@vitejs/plugin-react": "^4.2.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "eslint": "^8.56.0",
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
+    "jsdom": "^29.1.1",
+    "vite": "^5.0.0",
     "vitest": "^3.2.4"
   },
   "scripts": {
@@ -39,11 +40,21 @@
   },
   "eslintConfig": {
     "root": true,
-    "env": { "browser": true, "es2020": true },
-    "extends": ["eslint:recommended"],
+    "env": {
+      "browser": true,
+      "es2020": true
+    },
+    "extends": [
+      "eslint:recommended"
+    ],
     "parser": "@typescript-eslint/parser",
-    "parserOptions": { "ecmaVersion": "latest", "sourceType": "module" },
-    "plugins": ["@typescript-eslint"],
+    "parserOptions": {
+      "ecmaVersion": "latest",
+      "sourceType": "module"
+    },
+    "plugins": [
+      "@typescript-eslint"
+    ],
     "rules": {
       "@typescript-eslint/no-unused-vars": "warn",
       "no-unused-vars": "off"

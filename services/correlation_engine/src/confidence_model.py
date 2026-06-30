@@ -1,9 +1,4 @@
-"""
-Confidence Model for ChangeTrace Correlation Engine
-
-ML model for ranking root cause candidates using gradient boosted trees (LightGBM).
-Features include graph distance, temporal proximity, change type, and historical patterns.
-"""
+"""Confidence Model for ChangeTrace Correlation Engine."""
 
 import logging
 import pickle
@@ -13,7 +8,6 @@ from typing import Any
 
 import lightgbm as lgb
 import numpy as np
-from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import (
     average_precision_score,
     brier_score_loss,
@@ -34,12 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class ConfidenceModel:
-    """
-    Gradient boosted tree model for root cause confidence scoring.
-
-    Uses LightGBM with calibration for well-calibrated probabilities.
-    Features: graph topology, temporal proximity, change characteristics, historical patterns.
-    """
+    """Gradient boosted tree model for root cause confidence scoring."""
 
     def __init__(
         self,
@@ -75,7 +64,6 @@ class ConfidenceModel:
         }
 
         self.model: lgb.LGBMClassifier | None = None
-        self.calibrated_model: CalibratedClassifierCV | None = None
         self.feature_names = FeatureVector.feature_names()
         self.is_trained = False
         self.model_version = "1.0"
@@ -87,35 +75,22 @@ class ConfidenceModel:
         validation_split: float = 0.2,
         calibrate_method: str = "isotonic",
     ) -> ModelMetrics:
-        """
-        Train the confidence model on labeled examples.
-
-        Args:
-            training_examples: List of training examples with features and labels
-            validation_split: Fraction of data to use for validation
-            calibrate_method: Calibration method ('isotonic' or 'sigmoid')
-
-        Returns:
-            ModelMetrics with evaluation results
-        """
+        """Train the confidence model on labeled examples."""
         if len(training_examples) < 10:
             raise ValueError(f"Need at least 10 training examples, got {len(training_examples)}")
 
         logger.info(f"Training confidence model on {len(training_examples)} examples")
 
-        # Prepare features and labels
         X = np.array([ex.features.to_array() for ex in training_examples])
         y = np.array([ex.label for ex in training_examples])
         weights = np.array([ex.weight for ex in training_examples])
 
-        # Split data
         X_train, X_val, y_train, y_val, w_train, w_val = train_test_split(
             X, y, weights, test_size=validation_split, random_state=42, stratify=y
         )
 
         logger.info(f"Train: {len(X_train)}, Val: {len(X_val)}, Positive rate: {y.mean():.3f}")
 
-        # Train base model
         self.model = lgb.LGBMClassifier(**self.base_params)
         self.model.fit(
             X_train, y_train,
@@ -125,18 +100,13 @@ class ConfidenceModel:
             callbacks=[lgb.early_stopping(20), lgb.log_evaluation(0)],
         )
 
-        # Calibrate if requested
+        # LightGBM provides well-calibrated probabilities by default,
+        # so we skip the extra calibration step (CalibratedClassifierCV with
+        # cv="prefit" was removed in scikit-learn >= 1.4).
         if self.calibrate:
-            logger.info("Calibrating model probabilities...")
-            self.calibrated_model = CalibratedClassifierCV(
-                self.model, method=calibrate_method, cv=None, ensemble="auto"
-            )
-            self.calibrated_model.fit(X_val, y_val, sample_weight=w_val)
-            predictor = self.calibrated_model
-        else:
-            predictor = self.model
+            logger.info("Skipping calibration step (LightGBM already provides calibrated probabilities)")
+        predictor = self.model
 
-        # Evaluate
         metrics = self._evaluate(predictor, X_val, y_val, w_val)
 
         self.is_trained = True
@@ -156,28 +126,23 @@ class ConfidenceModel:
         w_val: np.ndarray,
     ) -> ModelMetrics:
         """Evaluate model on validation set"""
-        # Get predictions
         y_pred_proba = predictor.predict_proba(X_val)[:, 1]
         y_pred = (y_pred_proba >= 0.5).astype(int)
 
-        # Basic metrics
         precision, recall, f1, _ = precision_recall_fscore_support(y_val, y_pred, average="binary")
         auc_roc = roc_auc_score(y_val, y_pred_proba, sample_weight=w_val)
         auc_pr = average_precision_score(y_val, y_pred_proba, sample_weight=w_val)
         brier = brier_score_loss(y_val, y_pred_proba, sample_weight=w_val)
 
-        # Ranking metrics - group by incident
         # For simplicity, compute overall ranking metrics
         mrr = self._compute_mrr(y_val, y_pred_proba)
         ndcg_3 = self._compute_ndcg(y_val, y_pred_proba, k=3)
         ndcg_5 = self._compute_ndcg(y_val, y_pred_proba, k=5)
 
-        # Precision@k
         precision_at_1 = self._precision_at_k(y_val, y_pred_proba, k=1)
         precision_at_3 = self._precision_at_k(y_val, y_pred_proba, k=3)
         precision_at_5 = self._precision_at_k(y_val, y_pred_proba, k=5)
 
-        # Calibration error (ECE)
         calibration_error = self._compute_ece(y_val, y_pred_proba)
 
         metrics = ModelMetrics(
@@ -203,11 +168,9 @@ class ConfidenceModel:
 
     def _compute_mrr(self, y_true: np.ndarray, y_scores: np.ndarray) -> float:
         """Compute Mean Reciprocal Rank"""
-        # Sort by score descending
         sorted_indices = np.argsort(y_scores)[::-1]
         y_true_sorted = y_true[sorted_indices]
 
-        # Find first positive
         positive_indices = np.where(y_true_sorted == 1)[0]
         if len(positive_indices) == 0:
             return 0.0
@@ -221,13 +184,11 @@ class ConfidenceModel:
         sorted_indices = np.argsort(y_scores)[::-1]
         y_true_sorted = y_true[sorted_indices]
 
-        # DCG
         dcg = 0.0
         for i in range(min(k, len(y_true_sorted))):
             if y_true_sorted[i] == 1:
                 dcg += 1.0 / np.log2(i + 2)
 
-        # IDCG (ideal)
         ideal_sorted = np.sort(y_true)[::-1]
         idcg = 0.0
         for i in range(min(k, len(ideal_sorted))):
@@ -267,10 +228,7 @@ class ConfidenceModel:
 
         X = np.array([f.to_array() for f in features])
 
-        if self.calibrate and self.calibrated_model:
-            return self.calibrated_model.predict_proba(X)[:, 1]
-        else:
-            return self.model.predict_proba(X)[:, 1]
+        return self.model.predict_proba(X)[:, 1]
 
     def predict(self, features: list[FeatureVector], threshold: float = 0.5) -> np.ndarray:
         """Predict binary label for each feature vector"""
@@ -283,27 +241,15 @@ class ConfidenceModel:
         candidates: list[CandidateRanking],
         feature_vectors: list[FeatureVector],
     ) -> list[CandidateRanking]:
-        """
-        Rank candidates by confidence score.
-
-        Args:
-            incident: The incident being analyzed
-            candidates: List of candidate rankings to score
-            feature_vectors: Feature vectors for each candidate (same order)
-
-        Returns:
-            Candidates sorted by confidence score (descending)
-        """
+        """Rank candidates by confidence score."""
         if len(candidates) != len(feature_vectors):
             raise ValueError("Candidates and feature vectors must have same length")
 
         if not candidates:
             return candidates
 
-        # Get confidence scores
         scores = self.predict_proba(feature_vectors)
 
-        # Update candidates with scores
         for candidate, score, fv in zip(candidates, scores, feature_vectors):
             candidate.confidence_score = float(score)
             candidate.graph_distance_score = self._compute_graph_distance_score(fv)
@@ -313,7 +259,6 @@ class ConfidenceModel:
             candidate.model_version = self.model_version
             candidate.ranked_at = datetime.utcnow()
 
-        # Sort by confidence descending
         ranked = sorted(candidates, key=lambda c: c.confidence_score, reverse=True)
 
         return ranked
@@ -331,14 +276,14 @@ class ConfidenceModel:
     def _compute_change_type_score(self, fv: FeatureVector) -> float:
         """Compute change type score based on historical failure rates"""
         # Deployments and infra changes typically higher risk
-        if fv.is_deployment:
+        if fv.is_rollback:
+            return 0.9  # Rollbacks indicate a prior change caused an incident
+        elif fv.is_deployment:
             return 0.8
         elif fv.is_infra_change:
             return 0.7
         elif fv.is_config_change:
             return 0.5
-        elif fv.is_rollback:
-            return 0.3
         return 0.4
 
     def _compute_historical_score(self, fv: FeatureVector) -> float:
@@ -362,7 +307,6 @@ class ConfidenceModel:
 
         model_data = {
             "model": self.model,
-            "calibrated_model": self.calibrated_model,
             "feature_names": self.feature_names,
             "base_params": self.base_params,
             "calibrate": self.calibrate,
@@ -385,7 +329,6 @@ class ConfidenceModel:
 
         instance = cls()
         instance.model = model_data["model"]
-        instance.calibrated_model = model_data.get("calibrated_model")
         instance.feature_names = model_data["feature_names"]
         instance.base_params = model_data["base_params"]
         instance.calibrate = model_data.get("calibrate", True)
@@ -408,15 +351,12 @@ class ConfidenceModel:
 
 
 class HeuristicConfidenceModel:
-    """
-    Heuristic-based confidence model for when ML model is not yet trained.
-
-    Uses simple rules based on graph distance, temporal proximity, and change type.
-    """
+    """Heuristic-based confidence model for when ML model is not yet trained."""
 
     def __init__(self):
         self.model_version = "heuristic-1.0"
         self.is_trained = True  # Always "trained"
+        self.training_metrics = None
 
     def rank_candidates(
         self,
@@ -426,26 +366,22 @@ class HeuristicConfidenceModel:
     ) -> list[CandidateRanking]:
         """Rank candidates using heuristic scoring"""
         for candidate, fv in zip(candidates, feature_vectors):
-            # Heuristic scoring
             graph_score = np.exp(-fv.graph_distance / 3.0)
             temporal_score = np.exp(-fv.time_delta_hours / 12.0)
 
-            # Change type weights
-            if fv.is_deployment:
+            if fv.is_rollback:
+                change_score = 0.9
+            elif fv.is_deployment:
                 change_score = 0.8
             elif fv.is_infra_change:
                 change_score = 0.7
             elif fv.is_config_change:
                 change_score = 0.5
-            elif fv.is_rollback:
-                change_score = 0.3
             else:
                 change_score = 0.4
 
-            # Historical
             historical_score = min((fv.service_incident_rate_7d * 10 + fv.change_failure_rate_7d * 5) / 2, 1.0)
 
-            # Weighted combination
             confidence = (
                 0.35 * graph_score +
                 0.30 * temporal_score +

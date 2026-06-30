@@ -1,0 +1,18 @@
+Approval Required: {{ approval.incident_id }}
+
+**Service:** {{ approval.service_name }}
+**Action:** {{ approval.action }}
+**Risk Level:** {{ approval.risk_level | title }}
+**Confidence:** {{ "%.0f" | format(approval.confidence * 100) }}%
+
+**Description:** {{ approval.description }}
+
+**Parameters:**
+{% for key, value in approval.parameters.items() %}
+- {{ key }}: {{ value }}
+{% endfor %}
+
+**Requested By:** {{ approval.requested_by }}
+**Expires At:** {{ approval.expires_at }}
+
+**Approval Decision:** {{ approval.decision | default('pending') }}

@@ -13,14 +13,14 @@ common_tags = {
 }
 
 # Enable AKS (set to true only when ready to deploy and test - costs money!)
-enable_aks = false
+enable_aks = true
 
 # AKS configuration (only used if enable_aks = true)
 aks_node_count   = 1
-aks_node_vm_size = "Standard_B2s"
+aks_node_vm_size = "Standard_B2s_v2"
 
 # GitHub repository for OIDC federation (owner/repo)
-github_repository = ""
+github_repository = "Oussama928/unnamed_project"
 
 # Email for alerts
 alert_email = ""

@@ -1,12 +1,8 @@
 """
-Terraform Source Collector for ChangeTrace
+Terraform Source Collector for ChangeTrace.
 
-Collects change events from Terraform Cloud/Enterprise:
-- Plan outputs (what will change)
-- Apply results (what actually changed)
-- Run events (started, completed, failed)
-
-Parses Terraform plan JSON output to extract resource changes.
+Collects change events from Terraform Cloud/Enterprise and parses plan JSON
+output to extract resource changes.
 """
 
 import logging
@@ -89,12 +85,7 @@ class TerraformApply(BaseModel):
 
 
 class TerraformSource:
-    """
-    Terraform change event collector.
-
-    Collects from Terraform Cloud/Enterprise API.
-    Parses plan JSON to extract detailed resource changes.
-    """
+    """Terraform change event collector."""
 
     def __init__(self, config: TerraformConfig):
         self.config = config
@@ -161,7 +152,6 @@ class TerraformSource:
 
     async def get_plan(self, plan_id: str) -> TerraformPlan | None:
         """Get plan details including JSON output"""
-        # Get plan metadata
         response = await self._client.get(f"/plans/{plan_id}")
         response.raise_for_status()
         data = response.json()
@@ -175,7 +165,6 @@ class TerraformSource:
             json_output_url=attrs.get("json-output-url"),
         )
 
-        # Fetch JSON output if available
         if plan.json_output_url:
             try:
                 plan_response = await self._client.get(plan.json_output_url)
@@ -212,11 +201,9 @@ class TerraformSource:
             change = rc.get("change", {})
             actions = change.get("actions", [])
 
-            # Skip no-op changes
             if actions == ["no-op"]:
                 continue
 
-            # Determine operation
             if "create" in actions:
                 operation = "CREATE"
             elif "delete" in actions:
@@ -228,13 +215,12 @@ class TerraformSource:
             else:
                 operation = actions[0].upper() if actions else "UNKNOWN"
 
-            # Extract before/after
-            before = change.get("before", {})
-            after = change.get("after", {})
-            before_sensitive = change.get("before_sensitive", {})
-            after_sensitive = change.get("after_sensitive", {})
+            # Extract before/after (Terraform uses None for create/delete)
+            before = change.get("before") or {}
+            after = change.get("after") or {}
+            before_sensitive = change.get("before_sensitive") or {}
+            after_sensitive = change.get("after_sensitive") or {}
 
-            # Build diff
             diff = {}
             all_keys = set(before.keys()) | set(after.keys())
             for key in all_keys:
@@ -280,7 +266,6 @@ class TerraformSource:
 
         # Create one event per service
         for service_name, svc_changes in service_changes.items():
-            # Determine overall status
             status = ChangeStatus.SUCCEEDED
             if plan.status in ["errored", "canceled"]:
                 status = ChangeStatus.FAILED
@@ -289,7 +274,6 @@ class TerraformSource:
             elif plan.status == "planned":
                 status = ChangeStatus.IN_PROGRESS
 
-            # Build resource references
             k8s_changes = []
             azure_changes = []
 
@@ -349,7 +333,6 @@ class TerraformSource:
                 service_changes[service_name] = []
             service_changes[service_name].append(change)
 
-        # Determine status
         status = ChangeStatus.SUCCEEDED
         if apply.status in ["errored", "canceled"]:
             status = ChangeStatus.FAILED
@@ -411,21 +394,20 @@ class TerraformSource:
     def _extract_service_name(self, module: str, change: dict[str, Any]) -> str:
         """Extract service name from module and change"""
         # Try to get from module path
+        # Module paths like "module.auth" or "network.module.database"
         if module and module != "root":
-            # Module path like "module.service-name" or "module.network.module.service-name"
             parts = module.split(".")
-            for part in parts:
-                if part.startswith("module."):
-                    return part[7:]  # Remove "module."
+            for i, part in enumerate(parts):
+                if part == "module" and i + 1 < len(parts):
+                    return parts[i + 1]
 
         # Try to infer from resource address
         address = change.get("address", "")
         if address:
-            # Address like "module.service-name.kubernetes_deployment.app"
             parts = address.split(".")
-            for part in parts:
-                if part.startswith("module."):
-                    return part[7:]
+            for i, part in enumerate(parts):
+                if part == "module" and i + 1 < len(parts):
+                    return parts[i + 1]
 
         # Fallback to resource type
         resource_type = change.get("type", "")
@@ -477,7 +459,6 @@ class TerraformSource:
         change.get("address", "")
         resource_type = change.get("type", "")
 
-        # Extract resource ID from after state
         after = change.get("after", {})
         resource_id = after.get("id", "")
 
@@ -504,13 +485,11 @@ class TerraformSource:
             runs = await self.get_runs(workspace_id, since)
 
             for run in runs:
-                # Get plan if available
                 if run.plan_id and self.config.collect_plans:
                     plan = await self.get_plan(run.plan_id)
                     if plan:
                         events.extend(self.plan_to_change_events(plan, workspace_name))
 
-                # Get apply if available
                 if run.apply_id and self.config.collect_applies:
                     apply = await self.get_apply(run.apply_id)
                     if apply and run.plan_id:
@@ -535,7 +514,6 @@ class TerraformSource:
             ws_id = ws["id"]
             ws_name = ws["attributes"]["name"]
 
-            # Check prefix filter
             if self.config.workspace_prefixes:
                 if not any(ws_name.startswith(p) for p in self.config.workspace_prefixes):
                     continue

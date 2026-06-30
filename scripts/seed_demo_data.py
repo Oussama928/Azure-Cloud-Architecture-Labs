@@ -2,11 +2,7 @@
 """
 Seed Demo Data for ChangeTrace
 
-Populates the system with realistic demo data for development and testing:
-- Service dependency graph
-- Change events (GitHub, Terraform, Kubernetes, Azure)
-- Incidents with ground truth
-- SLO configurations
+Populates the system with realistic demo data for development and testing.
 """
 
 import asyncio
@@ -16,23 +12,15 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 import uuid
 
-# Demo service topology
+# Demo service topology (matches the deployed demo app in k8s/deployments)
 SERVICES = [
-    {"name": "api-gateway", "criticality": "high", "namespace": "production", "dependencies": []},
+    {"name": "api-gateway", "criticality": "high", "namespace": "production", "dependencies": ["auth-service", "payment-service", "order-service"]},
     {"name": "auth-service", "criticality": "high", "namespace": "production", "dependencies": []},
     {"name": "payment-service", "criticality": "critical", "namespace": "production", "dependencies": ["auth-service", "fraud-service"]},
-    {"name": "fraud-service", "criticality": "high", "namespace": "production", "dependencies": ["ml-model-service"]},
-    {"name": "ml-model-service", "criticality": "medium", "namespace": "production", "dependencies": ["feature-store"]},
-    {"name": "feature-store", "criticality": "medium", "namespace": "production", "dependencies": ["redis-cache"]},
-    {"name": "redis-cache", "criticality": "high", "namespace": "production", "dependencies": []},
+    {"name": "fraud-service", "criticality": "high", "namespace": "production", "dependencies": []},
     {"name": "order-service", "criticality": "high", "namespace": "production", "dependencies": ["payment-service", "inventory-service"]},
-    {"name": "inventory-service", "criticality": "medium", "namespace": "production", "dependencies": ["database-primary"]},
-    {"name": "notification-service", "criticality": "medium", "namespace": "production", "dependencies": ["message-queue"]},
-    {"name": "message-queue", "criticality": "high", "namespace": "production", "dependencies": []},
-    {"name": "database-primary", "criticality": "critical", "namespace": "production", "dependencies": []},
-    {"name": "database-replica", "criticality": "high", "namespace": "production", "dependencies": ["database-primary"]},
-    {"name": "cdn", "criticality": "low", "namespace": "production", "dependencies": []},
-    {"name": "monitoring", "criticality": "low", "namespace": "production", "dependencies": []},
+    {"name": "inventory-service", "criticality": "medium", "namespace": "production", "dependencies": []},
+    {"name": "notification-service", "criticality": "medium", "namespace": "production", "dependencies": []},
 ]
 
 CHANGE_TYPES = ["code_deployment", "config_change", "infrastructure_change", "release", "rollback", "scale_event"]
@@ -44,15 +32,9 @@ SLOS = {
     "auth-service": {"availability": 99.95, "latency_p99": 100},
     "payment-service": {"availability": 99.99, "latency_p99": 500},
     "fraud-service": {"availability": 99.9, "latency_p99": 300},
-    "ml-model-service": {"availability": 99.5, "latency_p99": 1000},
-    "feature-store": {"availability": 99.9, "latency_p99": 50},
-    "redis-cache": {"availability": 99.99, "latency_p99": 10},
     "order-service": {"availability": 99.9, "latency_p99": 400},
     "inventory-service": {"availability": 99.9, "latency_p99": 200},
     "notification-service": {"availability": 99.5, "latency_p99": 1000},
-    "message-queue": {"availability": 99.99, "latency_p99": 50},
-    "database-primary": {"availability": 99.99, "latency_p99": 100},
-    "database-replica": {"availability": 99.9, "latency_p99": 200},
 }
 
 
@@ -163,7 +145,6 @@ async def generate_change_events(count: int = 100) -> List[Dict[str, Any]]:
         
         events.append(event)
     
-    # Sort by timestamp descending
     events.sort(key=lambda x: x["timestamp"], reverse=True)
     return events
 
@@ -195,8 +176,8 @@ async def generate_incidents(count: int = 20) -> List[Dict[str, Any]]:
         },
         {
             "fault_type": "memory_pressure",
-            "target_service": "ml-model-service",
-            "root_cause_service": "ml-model-service",
+            "target_service": "inventory-service",
+            "root_cause_service": "inventory-service",
             "root_cause_change_type": "infrastructure_change",
         },
     ]
@@ -245,7 +226,6 @@ async def generate_incidents(count: int = 20) -> List[Dict[str, Any]]:
                 }
             })
         
-        # Sort by confidence
         candidates.sort(key=lambda x: x["confidenceScore"], reverse=True)
         
         incident = {
@@ -288,12 +268,10 @@ async def main():
     """Main entry point."""
     print("Generating demo data for ChangeTrace...")
     
-    # Generate all data
     graph = await generate_dependency_graph()
     changes = await generate_change_events(150)
     incidents = await generate_incidents(25)
     
-    # Save to files
     output_dir = "demo_data"
     import os
     os.makedirs(output_dir, exist_ok=True)

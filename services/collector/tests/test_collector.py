@@ -1,6 +1,4 @@
-"""
-Tests for Collector Service - Change Event Models
-"""
+"""Tests for Collector Service - Change Event Models"""
 
 from datetime import datetime
 
@@ -191,8 +189,9 @@ class TestChangeEventModels:
 
         vertex = event.to_gremlin_vertex()
 
-        assert vertex["id"] == event.id
+        assert "id" not in vertex
         assert vertex["eventId"] == event.event_id
+        assert vertex["eventId"] != event.id
         assert vertex["changeType"] == "code_deployment"
         assert vertex["source"] == "github"
         assert vertex["serviceName"] == "payment-service"
@@ -328,6 +327,52 @@ class TestTerraformReference:
         assert ref.organization == "my-org"
         assert len(ref.module_addresses) == 2
         assert len(ref.resource_changes) == 1
+
+
+class TestUpsertQuery:
+    def test_upsert_query_dedupes_by_deployment_id(self):
+        from services.collector.src.main import CollectorService, CollectorConfig
+
+        svc = CollectorService(CollectorConfig())
+        query = svc._build_upsert_query({
+            "eventId": "evt-1",
+            "serviceName": "checkout-service",
+            "tenantId": "tenant-x",
+            "deploymentId": "dep-050",
+            "changeType": "code_deployment",
+        })
+
+        assert "fold().coalesce" in query
+        assert "hasLabel('ChangeEvent')" in query
+        assert "has('deploymentId', 'dep-050')" in query
+        assert "addV('ChangeEvent')" in query
+        # partition key must only appear on addV, never on the unfold update branch
+        assert "unfold().property('serviceName'," not in query
+        add_branch = query.split("addV('ChangeEvent')")[1]
+        assert "property('serviceName', 'checkout-service')" in add_branch
+
+    def test_upsert_query_falls_back_to_event_id(self):
+        from services.collector.src.main import CollectorService, CollectorConfig
+
+        svc = CollectorService(CollectorConfig())
+        query = svc._build_upsert_query({
+            "eventId": "evt-1",
+            "serviceName": "checkout-service",
+            "tenantId": "tenant-x",
+            "changeType": "code_deployment",
+        })
+
+        assert "fold().coalesce" in query
+        assert "has('tenantId', 'tenant-x')" in query
+        assert "has('eventId', 'evt-1')" in query
+        assert "addV('ChangeEvent')" in query
+
+    def test_upsert_query_requires_tenant_id(self):
+        from services.collector.src.main import CollectorService, CollectorConfig
+
+        svc = CollectorService(CollectorConfig())
+        with pytest.raises(ValueError, match="tenantId is required"):
+            svc._build_upsert_query({"eventId": "evt-1", "serviceName": "checkout-service"})
 
 
 if __name__ == "__main__":

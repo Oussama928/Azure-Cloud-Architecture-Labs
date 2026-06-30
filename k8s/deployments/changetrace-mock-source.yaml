@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: changetrace-mock-source
+  namespace: changetrace
+  labels:
+    app: changetrace-mock-source
+    component: mock-source
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: changetrace-mock-source
+  template:
+    metadata:
+      labels:
+        app: changetrace-mock-source
+    spec:
+      imagePullSecrets:
+        - name: acr-pull-secret
+      containers:
+        - name: mock-source
+          image: changetrace29r2ywacr.azurecr.io/mock_source:v17
+          ports:
+            - containerPort: 8099
+          env:
+            - name: MOCK_SOURCE_PORT
+              value: "8099"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /events
+              port: 8099
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /events
+              port: 8099
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: changetrace-mock-source
+  namespace: changetrace
+  labels:
+    app: changetrace-mock-source
+spec:
+  ports:
+    - port: 8099
+      targetPort: 8099
+      name: http
+  selector:
+    app: changetrace-mock-source

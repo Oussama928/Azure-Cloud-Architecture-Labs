@@ -258,16 +258,6 @@ resource "azurerm_monitor_diagnostic_setting" "function_app" {
     }
   }
 
-  log {
-    category = "FunctionAppLogs"
-    enabled  = true
-
-    retention_policy {
-      enabled = true
-      days    = 30
-    }
-  }
-
   metric {
     category = "AllMetrics"
     enabled  = true

@@ -24,9 +24,7 @@ import urllib.parse
 
 logger = logging.getLogger(__name__)
 
-# ============================================================
 # Configuration
-# ============================================================
 COSMOS_DB_ENDPOINT = os.getenv("COSMOS_DB_ENDPOINT")
 COSMOS_DB_KEY = os.getenv("COSMOS_DB_KEY")
 COSMOS_DB_DATABASE = os.getenv("COSMOS_DB_DATABASE", "changetrace-graph")
@@ -35,9 +33,7 @@ COSMOS_DB_GRAPH = os.getenv("COSMOS_DB_GRAPH", "dependency-graph")
 LOG_ANALYTICS_WORKSPACE_ID = os.getenv("LOG_ANALYTICS_WORKSPACE_ID")
 APPLICATION_INSIGHTS_CONNECTION_STRING = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING")
 
-# ============================================================
 # Gremlin Client Helper
-# ============================================================
 async def _get_gremlin_client():
     """Get connected Gremlin client."""
     if not COSMOS_DB_ENDPOINT or not COSMOS_DB_KEY:
@@ -65,9 +61,7 @@ async def _get_gremlin_client():
     return gremlin_client, connection, g
 
 
-# ============================================================
 # Activity: Gather Context for Incident Response
-# ============================================================
 async def main(activity_input: dict[str, Any]) -> dict[str, Any]:
     """
     Gather context for incident correlation.

@@ -31,22 +31,19 @@ def evaluate_confidence_model(
 
     import joblib
 
-    # Load model
-    model = joblib.load(model_path)
+    # Load model (may be a dict with "model" key or a bare estimator)
+    raw = joblib.load(model_path)
+    model = raw.get("model", raw) if isinstance(raw, dict) else raw
 
-    # Load test data
     test_data = pd.read_parquet(test_data_path)
 
-    # Prepare features and labels
     feature_cols = [c for c in test_data.columns if c not in ["label", "incident_id", "change_event_id"]]
     X = test_data[feature_cols].values
     y = test_data["label"].values
 
-    # Predict probabilities
     y_pred_proba = model.predict_proba(X)[:, 1]
     y_pred = (y_pred_proba >= 0.5).astype(int)
 
-    # Compute metrics
     precision, recall, f1, _ = precision_recall_fscore_support(y, y_pred, average="binary")
     auc_roc = roc_auc_score(y, y_pred_proba)
     auc_pr = average_precision_score(y, y_pred_proba)
@@ -78,7 +75,6 @@ def evaluate_confidence_model(
         "num_negative": int((1 - y).sum())
     }
 
-    # Save metrics
     with open(output_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
@@ -95,22 +91,19 @@ def evaluate_risk_model(
 
     import joblib
 
-    # Load model
-    model = joblib.load(model_path)
+    # Load model (may be a dict with "model" key or a bare estimator)
+    raw = joblib.load(model_path)
+    model = raw.get("model", raw) if isinstance(raw, dict) else raw
 
-    # Load test data
     test_data = pd.read_parquet(test_data_path)
 
-    # Prepare features and labels
     feature_cols = [c for c in test_data.columns if c not in ["label", "deployment_id"]]
     X = test_data[feature_cols].values
     y = test_data["label"].values
 
-    # Predict
     y_pred_proba = model.predict_proba(X)[:, 1]
     y_pred = (y_pred_proba >= 0.5).astype(int)
 
-    # Metrics
     precision, recall, f1, _ = precision_recall_fscore_support(y, y_pred, average="binary")
     auc_roc = roc_auc_score(y, y_pred_proba)
     auc_pr = average_precision_score(y, y_pred_proba)
@@ -131,7 +124,6 @@ def evaluate_risk_model(
         "num_negative": int((1 - y).sum())
     }
 
-    # Save metrics
     with open(output_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
@@ -148,7 +140,6 @@ def compute_ranking_metrics(
     test_data = test_data.copy()
     test_data["score"] = scores
 
-    # Group by incident
     grouped = test_data.groupby("incident_id")
 
     precisions_at_1 = []
@@ -159,7 +150,6 @@ def compute_ranking_metrics(
     ndcgs_at_5 = []
 
     for _, group in grouped:
-        # Sort by score descending
         group = group.sort_values("score", ascending=False)
 
         # True labels in ranked order

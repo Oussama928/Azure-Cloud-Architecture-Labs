@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: changetrace-dashboard
+  namespace: changetrace
+  labels:
+    app: changetrace-dashboard
+    component: dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: changetrace-dashboard
+  template:
+    metadata:
+      labels:
+        app: changetrace-dashboard
+        component: dashboard
+    spec:
+      imagePullSecrets:
+        - name: acr-pull-secret
+      tolerations:
+        - key: "node.kubernetes.io/disk-pressure"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: dashboard
+          image: changetrace29r2ywacr.azurecr.io/changetrace-dashboard:v41
+          ports:
+            - containerPort: 3000
+          env: []
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: changetrace-dashboard
+  namespace: changetrace
+  labels:
+    app: changetrace-dashboard
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 3000
+      name: http
+  selector:
+    app: changetrace-dashboard

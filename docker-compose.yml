@@ -3,30 +3,147 @@ services:
     build:
       context: .
       dockerfile: ./services/dashboard_api/Dockerfile
-    ports: ["8002:8002"]
+    ports:
+      - "8002:8002"
     environment:
-      - COSMOS_CONNECTION_STRING=AccountEndpoint=https://changetrace-i5fv8b-cosmos.documents.azure.com:443/;AccountKey=REDACTED_COSMOSDB_KEY;ApiKind=Gremlin;
-      - APPINSIGHTS_INSTRUMENTATIONKEY=dev-key
+      - COSMOS_CONNECTION_STRING=${COSMOS_CONNECTION_STRING}
+      - COSMOS_DB_DATABASE=changetrace-graph
+      - COSMOS_DB_GRAPH=dependency-graph
+      - SIMPLE_AUTH_SECRET=${SIMPLE_AUTH_SECRET:-changetrace-docker-secret}
+      - APPINSIGHTS_INSTRUMENTATIONKEY=${APPINSIGHTS_INSTRUMENTATIONKEY:-dev-key}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   collector:
     build:
       context: .
       dockerfile: ./services/collector/Dockerfile
-    ports: ["8001:8001"]
+    ports:
+      - "8001:8001"
     environment:
-      - EVENTGRID_CICD_ENDPOINT=https://changetrace-i5fv8b-cicd-events.swedencentral-1.eventgrid.azure.net/api/events
-      - EVENTGRID_GIT_ENDPOINT=https://changetrace-i5fv8b-git-events.swedencentral-1.eventgrid.azure.net/api/events
-      - COSMOS_CONNECTION_STRING=AccountEndpoint=https://changetrace-i5fv8b-cosmos.documents.azure.com:443/;AccountKey=REDACTED_COSMOSDB_KEY;ApiKind=Gremlin;
+      - EVENTGRID_CICD_ENDPOINT=${EVENTGRID_CICD_ENDPOINT}
+      - EVENTGRID_GIT_ENDPOINT=${EVENTGRID_GIT_ENDPOINT}
+      - COSMOS_CONNECTION_STRING=${COSMOS_CONNECTION_STRING}
+      - COSMOS_DB_DATABASE=changetrace-graph
+      - COSMOS_DB_GRAPH=dependency-graph
+      - GRAPH_BUILDER_URL=http://graph-builder:8004
+      - INTERNAL_AUTH_TOKEN=${INTERNAL_AUTH_TOKEN:-changetrace-docker-token}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   correlation-engine:
     build:
       context: .
       dockerfile: ./services/correlation_engine/Dockerfile
-    ports: ["8003:8003"]
+    ports:
+      - "8003:8003"
     environment:
-      - COSMOS_CONNECTION_STRING=AccountEndpoint=https://changetrace-i5fv8b-cosmos.documents.azure.com:443/;AccountKey=REDACTED_COSMOSDB_KEY;ApiKind=Gremlin;
+      - COSMOS_CONNECTION_STRING=${COSMOS_CONNECTION_STRING}
+      - COSMOS_DB_DATABASE=changetrace-graph
+      - COSMOS_DB_GRAPH=dependency-graph
+      - ML_MODEL_PATH=/app/ml/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8003/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  graph-builder:
+    build:
+      context: .
+      dockerfile: ./services/graph_builder/Dockerfile
+    ports:
+      - "8004:8004"
+    environment:
+      - COSMOS_CONNECTION_STRING=${COSMOS_CONNECTION_STRING}
+      - COSMOS_DB_DATABASE=changetrace-graph
+      - COSMOS_DB_GRAPH=dependency-graph
+      - SIMPLE_AUTH_SECRET=${SIMPLE_AUTH_SECRET:-changetrace-docker-secret}
+      - INTERNAL_AUTH_TOKEN=${INTERNAL_AUTH_TOKEN:-changetrace-docker-token}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8004/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  risk-engine:
+    build:
+      context: .
+      dockerfile: ./services/risk_engine/Dockerfile
+    ports:
+      - "8005:8005"
+    environment:
+      - COSMOS_CONNECTION_STRING=${COSMOS_CONNECTION_STRING}
+      - COSMOS_DB_DATABASE=changetrace-graph
+      - COSMOS_DB_GRAPH=dependency-graph
+      - SIMPLE_AUTH_SECRET=${SIMPLE_AUTH_SECRET:-changetrace-docker-secret}
+      - ML_MODEL_PATH=/app/ml/models
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8005/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  postmortem-generator:
+    build:
+      context: .
+      dockerfile: ./services/postmortem_generator/Dockerfile
+    ports:
+      - "8006:8006"
+    environment:
+      - COSMOS_CONNECTION_STRING=${COSMOS_CONNECTION_STRING}
+      - COSMOS_DB_DATABASE=changetrace-graph
+      - COSMOS_DB_GRAPH=dependency-graph
+      - USE_LLM_FOR_REPORTS=${USE_LLM_FOR_REPORTS:-false}
+      - LLM_ENDPOINT=${LLM_ENDPOINT:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8006/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mock-source:
+    build:
+      context: .
+      dockerfile: ./services/mock_source/Dockerfile
+    ports:
+      - "8099:8099"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8099/events', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  demo-driver:
+    build:
+      context: .
+      dockerfile: ./services/demo_driver/Dockerfile
+    ports:
+      - "8007:8007"
+    environment:
+      - COSMOS_CONNECTION_STRING=${COSMOS_CONNECTION_STRING}
+      - COSMOS_DB_DATABASE=changetrace-graph
+      - COSMOS_DB_GRAPH=dependency-graph
+      - DEMO_TENANT_ID=${CHANGETRACE_DEMO_TENANT:-tenant-e5f171a28217}
+      - INTERNAL_AUTH_TOKEN=${INTERNAL_AUTH_TOKEN:-changetrace-docker-token}
+      - CORRELATION_ENGINE_URL=http://correlation-engine:8003
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8007/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   dashboard:
     build: ./dashboard
-    ports: ["3000:3000"]
-    depends_on: [dashboard-api]
+    ports:
+      - "3000:3000"
+    depends_on:
+      dashboard-api:
+        condition: service_healthy

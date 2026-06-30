@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: changetrace-risk-engine
+  namespace: changetrace
+  labels:
+    app: changetrace-risk-engine
+    component: risk-engine
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: changetrace-risk-engine
+  template:
+    metadata:
+      labels:
+        app: changetrace-risk-engine
+        component: risk-engine
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8005"
+    spec:
+      imagePullSecrets:
+        - name: acr-pull-secret
+      tolerations:
+        - key: "node.kubernetes.io/disk-pressure"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: risk-engine
+          image: changetrace29r2ywacr.azurecr.io/risk_engine:v18
+          ports:
+            - containerPort: 8005
+          env:
+            - name: COSMOS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-cosmos-secret
+                  key: cosmos-connection-string
+            - name: COSMOS_DB_DATABASE
+              value: "changetrace-graph"
+            - name: COSMOS_DB_GRAPH
+              value: "dependency-graph"
+            - name: SIMPLE_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-simple-auth-secret
+                  key: simple-auth-secret
+            - name: LOG_LEVEL
+              value: "info"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8005
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8005
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: changetrace-risk-engine
+  namespace: changetrace
+  labels:
+    app: changetrace-risk-engine
+spec:
+  ports:
+    - port: 8005
+      targetPort: 8005
+      name: http
+  selector:
+    app: changetrace-risk-engine

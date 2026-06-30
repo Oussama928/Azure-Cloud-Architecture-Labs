@@ -1,16 +1,7 @@
-"""
-Correlator for ChangeTrace Correlation Engine
-
-Main orchestration logic for incident correlation:
-1. Fetch recent changes from graph
-2. Compute blast radius from affected service
-3. Extract features for each candidate change
-4. Rank candidates using ML model
-5. Return ranked candidates with confidence scores
-"""
+"""Correlator for ChangeTrace Correlation Engine."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from gremlin_python.driver import client, serializer
@@ -32,23 +23,26 @@ from .models.correlation import (
 logger = logging.getLogger(__name__)
 
 
-class Correlator:
-    """
-    Main correlation engine for root cause analysis.
+def _utc_now() -> datetime:
+    """Timezone-aware UTC now for consistent comparisons with stored events."""
+    return datetime.now(timezone.utc)
 
-    Uses Cosmos DB Gremlin for graph queries and ML model for ranking.
-    """
+
+class Correlator:
+    """Main correlation engine for root cause analysis."""
 
     def __init__(
         self,
-        cosmos_connection_string: str,
+        cosmos_endpoint: str = "",
+        cosmos_key: str = "",
         cosmos_database: str = "changetrace-graph",
         cosmos_graph: str = "dependency-graph",
         model: ConfidenceModel | None = None,
         lookback_hours: int = 2,
         max_candidates: int = 10,
     ):
-        self.cosmos_connection_string = cosmos_connection_string
+        self.cosmos_endpoint = cosmos_endpoint
+        self.cosmos_key = cosmos_key
         self.cosmos_database = cosmos_database
         self.cosmos_graph = cosmos_graph
         self.lookback_hours = lookback_hours
@@ -57,68 +51,72 @@ class Correlator:
         # Initialize model (use heuristic if no trained model provided)
         self.model = model or HeuristicConfidenceModel()
 
-        # Gremlin client
         self._gremlin_client: client.Client | None = None
         self._g = None
 
     async def initialize(self) -> None:
         """Initialize Gremlin connection"""
-        # Parse connection string for Gremlin endpoint
-        endpoint = None
-        key = None
-        for param in self.cosmos_connection_string.split(";"):
-            param = param.strip()
-            if param.startswith("AccountEndpoint="):
-                endpoint = param[16:]
-            elif param.startswith("AccountKey="):
-                key = param[11:]
+        from services.shared.cosmos import create_gremlin_client, create_traversal_source
 
-        if not endpoint or not key:
-            raise ValueError("Invalid Cosmos DB connection string")
+        if not self.cosmos_endpoint or not self.cosmos_key:
+            raise ValueError("Cosmos DB credentials not configured")
 
-        # Create Gremlin client
-        self._gremlin_client = client.Client(
-            endpoint,
-            "g",
-            username=f"/dbs/{self.cosmos_database}/colls/{self.cosmos_graph}",
-            password=key,
-            message_serializer=serializer.GraphSONSerializersV2d0(),
+        self._gremlin_client = create_gremlin_client(
+            endpoint=self.cosmos_endpoint,
+            key=self.cosmos_key,
+            database=self.cosmos_database,
+            graph=self.cosmos_graph,
         )
 
-        # Create traversal source
-        self._g = traversal().withRemote(
-            DriverRemoteConnection(endpoint, "g", username=f"/dbs/{self.cosmos_database}/colls/{self.cosmos_graph}", password=key)
+        conn = create_traversal_source(
+            endpoint=self.cosmos_endpoint,
+            key=self.cosmos_key,
+            database=self.cosmos_database,
+            graph=self.cosmos_graph,
         )
+        if conn:
+            self._g = traversal().withRemote(conn)
 
         logger.info("Initialized Gremlin connection to Cosmos DB")
 
     async def close(self) -> None:
         """Close connections"""
         if self._gremlin_client:
-            self._gremlin_client.close()
+            import asyncio
+            loop = asyncio.get_running_loop()
+
+            def _close():
+                try:
+                    self._gremlin_client.close()
+                except Exception:
+                    pass
+
+            try:
+                await loop.run_in_executor(None, _close)
+            except Exception:
+                pass
+            self._gremlin_client = None
         logger.info("Closed Gremlin connection")
 
     async def correlate_incident(self, request: CorrelationRequest) -> CorrelationResponse:
-        """
-        Main correlation entry point.
-
-        Returns:
-            CorrelationResponse with ranked candidates
-        """
+        """Main correlation entry point."""
         start_time = datetime.utcnow()
 
-        logger.info(f"Correlating incident {request.incident_id} for service {request.affected_service}")
+        logger.info(f"Correlating incident {request.incident_id} for service {request.affected_service} (tenant: {request.tenant_id})")
 
         # 1. Get blast radius from affected service
         blast_radius = await self.compute_blast_radius(
             request.affected_service,
             request.affected_namespace,
+            tenant_id=request.tenant_id,
         )
 
         # 2. Get candidate changes within blast radius and lookback window
         candidates = await self.get_candidate_changes(
             blast_radius.affected_services,
             request.lookback_hours,
+            source_service=request.affected_service,
+            tenant_id=request.tenant_id,
         )
 
         logger.info(f"Found {len(candidates)} candidate changes")
@@ -142,19 +140,21 @@ class Correlator:
 
         # 4. Rank candidates using model
         ranked_candidates = self.model.rank_candidates(
-            Incident(id=request.incident_id, affected_service=request.affected_service),
+            Incident(id=request.incident_id, incident_id=request.incident_id,
+                     title=f"Incident {request.incident_id}",
+                     affected_service=request.affected_service),
             candidates,
             feature_vectors,
         )
 
-        # 5. Limit to max candidates
-        ranked_candidates = ranked_candidates[:request.max_candidates]
-
-        # 6. Filter by minimum confidence threshold
+        # 5. Filter by minimum confidence threshold
         ranked_candidates = [
             c for c in ranked_candidates
             if c.confidence_score >= request.min_confidence_threshold
         ]
+
+        # 6. Limit to max candidates
+        ranked_candidates = ranked_candidates[:request.max_candidates]
 
         analysis_time = (datetime.utcnow() - start_time).total_seconds() * 1000
 
@@ -171,19 +171,15 @@ class Correlator:
         service_name: str,
         namespace: str | None = None,
         max_hops: int = 3,
+        tenant_id: str = "demo-tenant",
     ) -> BlastRadiusResult:
-        """
-        Compute blast radius from a service using graph traversal.
-
-        Finds all services that depend on the given service (reverse dependencies)
-        up to max_hops distance.
-        """
-        logger.debug(f"Computing blast radius for {service_name} (namespace: {namespace})")
+        """Compute blast radius from a service using graph traversal."""
+        logger.debug(f"Computing blast radius for {service_name} (namespace: {namespace}, tenant: {tenant_id})")
 
         # Build query to find all services that depend on the source service
         # Traverse reverse 'depends_on' edges (incoming edges to source)
         query = f"""
-        g.V().has('serviceName', '{service_name}')
+        g.V().hasLabel('Service').has('serviceName', '{service_name}').has('tenantId', '{tenant_id}')
         """
 
         if namespace:
@@ -201,11 +197,9 @@ class Correlator:
             result = await self._execute_query(query)
             affected_services = [r for r in result if r != service_name]
 
-            # Also get paths for each affected service
-            paths = await self._get_dependency_paths(service_name, affected_services, max_hops)
+            paths = await self._get_dependency_paths(service_name, affected_services, max_hops, tenant_id)
 
-            # Identify critical services (those with high dependent count)
-            critical_services = await self._identify_critical_services(affected_services)
+            critical_services = await self._identify_critical_services(affected_services, tenant_id)
 
             return BlastRadiusResult(
                 source_service=service_name,
@@ -231,13 +225,14 @@ class Correlator:
         source: str,
         targets: list[str],
         max_hops: int,
+        tenant_id: str = "demo-tenant",
     ) -> list[list[str]]:
         """Get dependency paths from source to each target"""
         paths = []
 
         for target in targets:
             query = f"""
-            g.V().has('serviceName', '{source}')
+            g.V().hasLabel('Service').has('serviceName', '{source}').has('tenantId', '{tenant_id}')
             .repeat(__.in('depends_on').simplePath())
             .times({max_hops})
             .until(has('serviceName', '{target}'))
@@ -256,7 +251,7 @@ class Correlator:
 
         return paths
 
-    async def _identify_critical_services(self, services: list[str]) -> list[str]:
+    async def _identify_critical_services(self, services: list[str], tenant_id: str = "demo-tenant") -> list[str]:
         """Identify critical services based on dependent count"""
         if not services:
             return []
@@ -264,7 +259,7 @@ class Correlator:
         # Query for services with high in-degree (many dependents)
         service_list = "', '".join(services)
         query = f"""
-        g.V().has('serviceName', within('{service_list}'))
+        g.V().hasLabel('Service').has('serviceName', within('{service_list}')).has('tenantId', '{tenant_id}')
         .where(__.in('depends_on').count().is(gt(3)))
         .values('serviceName')
         """
@@ -280,25 +275,28 @@ class Correlator:
         self,
         affected_services: list[str],
         lookback_hours: int,
+        source_service: str | None = None,
+        tenant_id: str = "demo-tenant",
     ) -> list[CandidateRanking]:
-        """
-        Get recent changes for affected services within lookback window.
-
-        Queries the change-history graph for changes to services in the blast radius.
-        """
-        if not affected_services:
+        """Get recent changes for affected services within lookback window."""
+        if not affected_services and not source_service:
             return []
 
-        # Include the source service itself
-        all_services = list(set(affected_services))
+        # Include the source service itself in candidate search
+        if source_service:
+            all_services = list(set(affected_services + [source_service]))
+        else:
+            all_services = list(set(affected_services))
 
         service_list = "', '".join(all_services)
-        cutoff_time = (datetime.utcnow() - timedelta(hours=lookback_hours)).isoformat()
+        cutoff_time = (_utc_now() - timedelta(hours=lookback_hours)).isoformat()
 
         query = f"""
-        g.V().has('serviceName', within('{service_list}'))
+        g.V().hasLabel('ChangeEvent')
+        .has('serviceName', within('{service_list}'))
+        .has('tenantId', '{tenant_id}')
         .has('timestamp', gte('{cutoff_time}'))
-        .order().by('timestamp', desc)
+        .order().by('timestamp', decr)
         .limit({self.max_candidates * 3})
         .valueMap(true)
         """
@@ -325,12 +323,22 @@ class Correlator:
                 val = v.get(key, [default])
                 return val[0] if isinstance(val, list) else val
 
+            # Parse timestamp, treating naive timestamps as UTC
+            try:
+                ts = datetime.fromisoformat(
+                    get_prop(vertex, 'timestamp', _utc_now().isoformat())
+                )
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                ts = _utc_now()
+
             return CandidateRanking(
                 change_event_id=get_prop(vertex, 'eventId', get_prop(vertex, 'id', '')),
                 service_name=get_prop(vertex, 'serviceName', ''),
                 change_type=get_prop(vertex, 'changeType', ''),
                 source=get_prop(vertex, 'source', ''),
-                timestamp=datetime.fromisoformat(get_prop(vertex, 'timestamp', datetime.utcnow().isoformat())),
+                timestamp=ts,
                 confidence_score=0.0,  # Will be set by model
                 graph_distance_score=0.0,
                 temporal_proximity_score=0.0,
@@ -358,44 +366,30 @@ class Correlator:
         candidates: list[CandidateRanking],
         blast_radius: BlastRadiusResult,
     ) -> list[FeatureVector]:
-        """
-        Extract feature vectors for each candidate change.
-
-        Features include:
-        - Graph distance from affected service
-        - Temporal proximity to incident
-        - Change type encoding
-        - Historical failure rates
-        - Service criticality
-        """
+        """Extract feature vectors for each candidate change."""
         feature_vectors = []
 
-        # Pre-compute service metrics
         service_metrics = await self._get_service_metrics(
             [c.service_name for c in candidates] + [affected_service]
         )
 
         for candidate in candidates:
-            # Graph distance
             graph_distance = self._compute_graph_distance(
                 affected_service,
                 candidate.service_name,
                 blast_radius,
             )
 
-            # Temporal proximity
-            time_delta = datetime.utcnow() - candidate.timestamp
+            time_delta = _utc_now() - candidate.timestamp
             time_delta_hours = time_delta.total_seconds() / 3600
             time_delta_minutes = time_delta.total_seconds() / 60
 
-            # Change type encoding
             change_type_encoded = self._encode_change_type(candidate.change_type)
             is_deployment = candidate.change_type == "code_deployment"
             is_config_change = candidate.change_type == "config_change"
             is_infra_change = candidate.change_type == "infrastructure_change"
             is_rollback = candidate.change_type == "rollback"
 
-            # Get service metrics
             svc_metrics = service_metrics.get(candidate.service_name, {})
 
             fv = FeatureVector(
@@ -444,7 +438,6 @@ class Correlator:
         if source == target:
             return 0
 
-        # Check paths in blast radius
         for path in blast_radius.paths:
             if target in path:
                 return path.index(target)
@@ -471,7 +464,6 @@ class Correlator:
         if target not in blast_radius.affected_services:
             return 0.0
 
-        # Get blast radius of target
         # Simplified: return 1.0 if in blast radius, 0 otherwise
         return 1.0
 
@@ -509,18 +501,51 @@ class Correlator:
 
     async def _execute_query(self, query: str) -> list[Any]:
         """Execute Gremlin query"""
-        if not self._gremlin_client:
+        if not self.cosmos_endpoint or not self.cosmos_key:
             raise RuntimeError("Gremlin client not initialized")
 
+        import asyncio
+        import urllib.parse
+        from gremlin_python.driver import client, serializer
+
+        parsed = urllib.parse.urlparse(self.cosmos_endpoint)
+        host = parsed.netloc
+
+        def _run():
+            # Create a fresh client in the executor thread (aiohttp transport
+            # must be bound to the loop of the thread that uses it).
+            c = client.Client(
+                f"wss://{host}/gremlin",
+                "g",
+                username=f"/dbs/{self.cosmos_database}/colls/{self.cosmos_graph}",
+                password=self.cosmos_key,
+                message_serializer=serializer.GraphSONSerializersV2d0(),
+            )
+            try:
+                return list(c.submit(query))
+            finally:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+
+        loop = asyncio.get_running_loop()
         try:
-            result_set = self._gremlin_client.submit(query)
-            results = []
-            for result in result_set:
-                results.append(result)
-            return results
+            raw = await loop.run_in_executor(None, _run)
         except Exception as e:
             logger.error(f"Gremlin query failed: {query[:200]}... Error: {e}")
             raise
+
+        # Normalize results: the Gremlin client can return nested lists
+        # (e.g. valueMap rows wrapped in an extra list), and property values
+        # come back as lists for vertex maps.
+        rows: list[Any] = []
+        for item in raw:
+            if isinstance(item, list):
+                rows.extend(item)
+            else:
+                rows.append(item)
+        return rows
 
     async def create_training_example(
         self,
@@ -549,7 +574,8 @@ class Correlator:
 
 
 async def create_correlator(
-    cosmos_connection_string: str,
+    cosmos_endpoint: str = "",
+    cosmos_key: str = "",
     model_path: str | None = None,
     **kwargs,
 ) -> Correlator:
@@ -567,7 +593,8 @@ async def create_correlator(
         logger.info("Using heuristic confidence model (no trained model provided)")
 
     correlator = Correlator(
-        cosmos_connection_string=cosmos_connection_string,
+        cosmos_endpoint=cosmos_endpoint,
+        cosmos_key=cosmos_key,
         model=model,
         **kwargs,
     )

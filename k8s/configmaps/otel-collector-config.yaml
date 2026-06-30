@@ -41,7 +41,7 @@ data:
             value: "eastus"
             action: insert
       k8sattributes:
-        auth_type: "service_account"
+        auth_type: "none"
         passthrough: false
         filter:
           node_from_env_var: KUBE_NODE_NAME
@@ -63,7 +63,11 @@ data:
         endpoint: "0.0.0.0:8889"
       logging:
         loglevel: info
+    extensions:
+      health_check:
+        endpoint: "0.0.0.0:13133"
     service:
+      extensions: [health_check]
       pipelines:
         traces:
           receivers: [otlp]

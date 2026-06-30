@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: changetrace-postmortem-generator
+  namespace: changetrace
+  labels:
+    app: changetrace-postmortem-generator
+    component: postmortem-generator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: changetrace-postmortem-generator
+  template:
+    metadata:
+      labels:
+        app: changetrace-postmortem-generator
+        component: postmortem-generator
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8006"
+    spec:
+      imagePullSecrets:
+        - name: acr-pull-secret
+      tolerations:
+        - key: "node.kubernetes.io/disk-pressure"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: postmortem-generator
+          image: changetrace29r2ywacr.azurecr.io/postmortem_generator:v16
+          ports:
+            - containerPort: 8006
+          env:
+            - name: COSMOS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-cosmos-secret
+                  key: cosmos-connection-string
+            - name: USE_LLM_FOR_REPORTS
+              value: "false"
+            - name: LOG_LEVEL
+              value: "info"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8006
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8006
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: changetrace-postmortem-generator
+  namespace: changetrace
+  labels:
+    app: changetrace-postmortem-generator
+spec:
+  ports:
+    - port: 8006
+      targetPort: 8006
+      name: http
+  selector:
+    app: changetrace-postmortem-generator

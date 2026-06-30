@@ -1,13 +1,8 @@
 """
-GitHub Source Collector for ChangeTrace
+GitHub Source Collector for ChangeTrace.
 
-Collects change events from GitHub:
-- Commits pushed to protected branches
-- Pull requests merged
-- Releases published
-- Tags created
-
-Uses GitHub App authentication for production, PAT for development.
+Collects change events from GitHub using App authentication for production,
+PAT for development.
 """
 
 import hashlib
@@ -74,11 +69,7 @@ class GitHubEventPayload(BaseModel):
 
 
 class GitHubSource:
-    """
-    GitHub change event collector.
-
-    Supports both webhook-based (real-time) and polling-based (fallback) collection.
-    """
+    """GitHub change event collector."""
 
     def __init__(self, config: GitHubConfig):
         self.config = config
@@ -90,7 +81,6 @@ class GitHubSource:
     async def initialize(self) -> None:
         """Initialize GitHub client with authentication"""
         if self.config.app_id and self.config.private_key and self.config.installation_id:
-            # GitHub App authentication
             integration = GithubIntegration(
                 self.config.app_id,
                 self.config.private_key
@@ -99,7 +89,6 @@ class GitHubSource:
             self._client = Github(token.token)
             logger.info("Initialized GitHub client with App authentication")
         elif self.config.personal_access_token:
-            # PAT authentication
             self._client = Github(self.config.personal_access_token)
             logger.info("Initialized GitHub client with PAT authentication")
         else:
@@ -127,7 +116,6 @@ class GitHubSource:
 
     async def parse_webhook(self, payload: bytes, headers: dict[str, str]) -> GitHubEventPayload | None:
         """Parse and validate GitHub webhook payload"""
-        # Verify signature
         signature = headers.get("X-Hub-Signature-256", "")
         if not self.verify_webhook_signature(payload, signature):
             logger.warning("Invalid webhook signature")
@@ -199,9 +187,12 @@ class GitHubSource:
         repo = event.repository
 
         for commit in commits:
-            # Skip merge commits
             if commit.get("message", "").startswith("Merge "):
                 continue
+
+            commit_author = commit.get("author") or {}
+            author_name = commit_author.get("name", "unknown")
+            author_email = commit_author.get("email", "unknown@github.com")
 
             change_event = ChangeEvent(
                 change_type=ChangeType.CODE_DEPLOYMENT,
@@ -210,8 +201,8 @@ class GitHubSource:
                 timestamp=datetime.fromisoformat(commit["timestamp"].replace("Z", "+00:00")),
                 service_name=self._extract_service_name(repo, commit),
                 environment="production",  # Could be inferred from branch
-                author=commit["author"]["name"],
-                author_email=commit["author"]["email"],
+                author=author_name,
+                author_email=author_email,
                 description=commit["message"],
                 summary=commit["message"].split("\n")[0][:200],
                 git=GitReference(
@@ -220,8 +211,8 @@ class GitHubSource:
                     commit_sha=commit["id"],
                     commit_message=commit["message"],
                     branch=branch,
-                    author=commit["author"]["name"],
-                    author_email=commit["author"]["email"],
+                    author=author_name,
+                    author_email=author_email,
                     commit_url=commit["url"],
                     compare_url=payload.get("compare"),
                 ),
@@ -255,6 +246,10 @@ class GitHubSource:
         if base_branch not in self.config.branches:
             return events
 
+        pr_user = pr.get("user") or {}
+        pr_author = pr_user.get("login", "unknown")
+        pr_email = pr_user.get("email")
+
         change_event = ChangeEvent(
             change_type=ChangeType.CODE_DEPLOYMENT,
             source=ChangeSource.GITHUB,
@@ -262,8 +257,8 @@ class GitHubSource:
             timestamp=datetime.fromisoformat(pr["merged_at"].replace("Z", "+00:00")),
             service_name=self._extract_service_name(repo, pr),
             environment="production",
-            author=pr["user"]["login"],
-            author_email=pr["user"].get("email"),
+            author=pr_author,
+            author_email=pr_email,
             description=pr["body"] or pr["title"],
             summary=f"PR #{pr['number']}: {pr['title']}",
             git=GitReference(
@@ -273,8 +268,8 @@ class GitHubSource:
                 branch=base_branch,
                 pr_number=pr["number"],
                 pr_title=pr["title"],
-                author=pr["user"]["login"],
-                author_email=pr["user"].get("email"),
+                author=pr_author,
+                author_email=pr_email,
                 commit_url=pr["html_url"],
             ),
             pipeline_name=f"github/{repo['full_name']}",

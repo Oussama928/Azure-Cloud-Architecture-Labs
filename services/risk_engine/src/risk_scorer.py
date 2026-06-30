@@ -1,8 +1,4 @@
-"""
-Risk Scorer for ChangeTrace Risk Engine
-
-Scores deployment risk using ML model + heuristic factors.
-"""
+"""Risk Scorer for ChangeTrace Risk Engine."""
 
 import logging
 import os
@@ -52,21 +48,13 @@ class RiskScorer:
         version: str,
         change_details: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Score deployment risk.
-        
-        Returns risk score (0-1), risk level, and contributing factors.
-        """
-        # Extract features
+        """Score deployment risk and return risk score, level, and factors."""
         features = self._extract_features(service_name, namespace, change_details)
         
-        # Get risk score
         risk_score = self._predict_risk(features)
         
-        # Categorize risk
         risk_level = self._categorize_risk(risk_score)
         
-        # Determine if approval required
         risk_threshold = float(os.getenv("RISK_THRESHOLD", "0.70"))
         approval_required = risk_score >= risk_threshold
         
@@ -106,7 +94,7 @@ class RiskScorer:
         # Temporal
         now = datetime.utcnow()
         is_weekend = 1.0 if now.weekday() >= 5 else 0.0
-        is_business_hours = 1.0 if 9 <= now.hour <= 17 else 0.0
+        is_business_hours = 1.0 if 9 <= now.hour < 17 else 0.0
         time_since_last_deploy = self._get_time_since_last_deploy(service_name)
         
         # Team
@@ -182,9 +170,7 @@ class RiskScorer:
             return "low"
         return "minimal"
     
-    # ============================================================
     # Helper methods (mock implementations - would query DB/graph in production)
-    # ============================================================
     
     def _get_service_criticality(self, service_name: str) -> float:
         criticality_map = {
@@ -196,7 +182,6 @@ class RiskScorer:
             "fraud-service": 0.8,
             "inventory-service": 0.6,
             "notification-service": 0.4,
-            "ml-model-service": 0.5,
         }
         return criticality_map.get(service_name, 0.5)
     

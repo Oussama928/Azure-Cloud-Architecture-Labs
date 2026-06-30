@@ -8,14 +8,14 @@
     },
     "location": {
       "type": "string",
-      "defaultValue": "eastus"
+      "defaultValue": "swedencentral"
     },
     "targetResourceId": {
       "type": "string"
     },
     "targetServiceLabel": {
       "type": "string",
-      "defaultValue": "app=payments"
+      "defaultValue": "app=changetrace-risk-engine"
     }
   },
   "resources": [
@@ -36,7 +36,7 @@
                 "name": "pod-failure-branch",
                 "actions": [
                   {
-                    "name": "kill-pod",
+                    "name": "podKillAction",
                     "type": "continuous",
                     "parameters": [
                       {
@@ -45,7 +45,7 @@
                       },
                       {
                         "key": "selector",
-                        "value": "{\"namespaces\":[\"default\"],\"labelSelectors\":{\"app\":\"[parameters('targetServiceLabel')]\"}}"
+                        "value": "{\"namespaces\":[\"changetrace\"],\"labelSelectors\":{\"app\":\"[parameters('targetServiceLabel')]\"}}"
                       },
                       {
                         "key": "duration",

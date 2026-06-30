@@ -1,15 +1,9 @@
-"""
-End-to-End Integration Tests for ChangeTrace
-
-Tests the complete flow from change ingestion through correlation to remediation.
-"""
+"""End-to-End Integration Tests for ChangeTrace: change ingestion through correlation to remediation."""
 
 import pytest
-import asyncio
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-# Import services
 from services.collector.src.main import CollectorService, CollectorConfig
 from services.correlation_engine.src.main import Correlator
 from services.risk_engine.src.main import RiskEngine
@@ -23,9 +17,9 @@ class TestEndToEndFlow:
     @pytest.fixture
     def mock_services(self):
         """Set up mocked services for integration testing."""
-        # Create mock config
         config = CollectorConfig(
-            cosmos_connection_string="AccountEndpoint=https://test.gremlin.cosmos.azure.com:443/;AccountKey=test",
+            cosmos_endpoint="wss://test.gremlin.cosmos.azure.com:443/",
+            cosmos_key="test",
             github=None,
             terraform=None,
             kubernetes=None,
@@ -37,12 +31,12 @@ class TestEndToEndFlow:
             
             collector = CollectorService(config)
             correlator = Correlator(
-                cosmos_connection_string="AccountEndpoint=https://test.gremlin.cosmos.azure.com:443/;AccountKey=test",
+                cosmos_endpoint="wss://test.gremlin.cosmos.azure.com:443/",
+                cosmos_key="test",
                 model=None
             )
             risk_engine = RiskEngine()
             
-            # Mock the async methods
             collector.process_github_webhook = AsyncMock(return_value=[
                 ChangeEvent(
                     change_type=ChangeType.CODE_DEPLOYMENT,
@@ -146,7 +140,6 @@ class TestEndToEndFlow:
             "ref": "refs/heads/main"
         }
         
-        # Collector processes event
         change_events = await mock_services["collector"].process_github_webhook(github_event)
         
         assert len(change_events) > 0
@@ -164,7 +157,6 @@ class TestEndToEndFlow:
             "detected_at": datetime.utcnow().isoformat()
         }
         
-        # Correlate incident with recent changes
         correlation_result = await mock_services["correlator"].correlate_incident(incident)
         
         assert "candidates" in correlation_result
@@ -179,7 +171,6 @@ class TestEndToEndFlow:
     async def test_incident_workflow_wf1(self, mock_services):
         """Test WF-1: Incident Response Workflow."""
         
-        # Create incident workflow state
         workflow_state = IncidentWorkflowState(
             incident_id="INC-20240115-143022-a1b2c3",
             incident_title="Payment Service Latency Spike",
@@ -190,7 +181,6 @@ class TestEndToEndFlow:
             detected_at=datetime.utcnow()
         )
         
-        # Simulate workflow execution
         # Phase 1: Evidence gathering
         evidence = await mock_services["correlator"].gather_evidence(workflow_state)
         assert "recent_changes" in evidence
@@ -231,7 +221,6 @@ class TestEndToEndFlow:
     async def test_deployment_workflow_wf2(self, mock_services):
         """Test WF-2: Deployment Approval Workflow."""
         
-        # Create deployment workflow state
         workflow_state = DeploymentWorkflowState(
             deployment_id="deploy-20240115-143022",
             service_name="payment-service",
@@ -365,7 +354,6 @@ class TestDataFlow:
             change_failure_rate_7d=0.02
         )
         
-        # Convert to array for ML model
         feature_array = fv.to_array()
         
         assert len(feature_array) == len(FeatureVector.feature_names())

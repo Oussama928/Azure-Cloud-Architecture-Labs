@@ -1,8 +1,4 @@
-"""
-Health Check Framework for ChangeTrace Services.
-
-Provides standardized health checks for all services with dependency verification.
-"""
+"""Health Check Framework for ChangeTrace Services."""
 
 import asyncio
 import time
@@ -12,8 +8,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
-from azure import common
 from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse
 from prometheus_client import registry
 from pydantic import BaseModel
 
@@ -406,28 +402,7 @@ def create_health_endpoint(app: FastAPI, registry: HealthCheckRegistry) -> None:
         critical_checks = [c for c in health.checks if c.metadata.get("critical", True)]
         ready = all(c.status == HealthStatus.HEALTHY for c in critical_checks)
         
-        return Response(
-            content=health.to_dict().__str__(),
-            media_type="application/json",
+        return JSONResponse(
+            content=health.to_dict(),
             status_code=200 if ready else 503,
         )
-
-
-
-
-
-"""
-
-# Example usage
-def create_default_registry(service_name: str, version: str = "1.0.0") -> HealthCheckRegistry:
-
-    registry = HealthCheckRegistry(service_name, version)
-    
-    # Add  service-specific checks here
-    # registry.add_cosmos_check("cosmos-db", get_cosmos_client)
-    # registry.add_keyvault_check("key-vault", get_secret_client)
-    # registry.add_http_check("downstream-api", "https://api.example.com/health")
-    
-    return registry
-
-"""

@@ -1,13 +1,13 @@
-"""
-Main Correlation Engine Service for ChangeTrace
-
-FastAPI service that exposes the correlation engine via REST API.
-"""
+"""Main Correlation Engine Service for ChangeTrace."""
 
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
+
+import dotenv
+
+dotenv.load_dotenv()
 
 # Configure structured logging
 import structlog
@@ -49,7 +49,8 @@ logger = structlog.get_logger(__name__)
 class CorrelationConfig(BaseModel):
     """Configuration for correlation engine service"""
     # Cosmos DB
-    cosmos_connection_string: str
+    cosmos_endpoint: str = ""
+    cosmos_key: str = ""
     cosmos_database: str = "changetrace-graph"
     cosmos_graph: str = "dependency-graph"
 
@@ -84,8 +85,13 @@ async def lifespan(app: FastAPI):
     # Load config from environment
     from pydantic_settings import BaseSettings
 
+    from services.shared.cosmos import get_cosmos_config_from_env
+
+    cosmos_cfg = get_cosmos_config_from_env()
+
     class Settings(BaseSettings):
-        cosmos_connection_string: str
+        cosmos_endpoint: str = cosmos_cfg["endpoint"]
+        cosmos_key: str = cosmos_cfg["key"]
         cosmos_database: str = "changetrace-graph"
         cosmos_graph: str = "dependency-graph"
         model_path: str | None = None
@@ -100,14 +106,18 @@ async def lifespan(app: FastAPI):
         class Config:
             env_file = ".env"
             env_file_encoding = "utf-8"
+            extra = "ignore"
 
     settings = Settings()
     config = CorrelationConfig(**settings.model_dump())
 
     # Initialize correlator
     logger.info("Initializing correlation engine...")
+    if not config.cosmos_endpoint or not config.cosmos_key:
+        logger.warning("Cosmos DB not configured - using heuristic mode without graph queries")
     correlator = await create_correlator(
-        cosmos_connection_string=config.cosmos_connection_string,
+        cosmos_endpoint=config.cosmos_endpoint,
+        cosmos_key=config.cosmos_key,
         model_path=config.model_path,
         lookback_hours=config.lookback_hours,
         max_candidates=config.max_candidates,
@@ -164,23 +174,14 @@ async def readiness_check() -> dict[str, Any]:
 
 @app.post("/correlate", response_model=CorrelationResponse)
 async def correlate_incident(request: CorrelationRequest) -> CorrelationResponse:
-    """
-    Correlate an incident with recent changes to identify root cause candidates.
-
-    This is the main endpoint for WF-1 incident response workflow.
-    """
+    """Correlate an incident with recent changes to identify root cause candidates."""
     if not correlator:
         raise HTTPException(status_code=503, detail="Correlator not initialized")
 
     try:
-        # Override request params with config defaults if not specified
-        if request.lookback_hours == 2:  # default
-            request.lookback_hours = config.lookback_hours
-        if request.max_candidates == 10:  # default
-            request.max_candidates = config.max_candidates
-        if request.min_confidence_threshold == 0.1:  # default
-            request.min_confidence_threshold = config.min_confidence_threshold
-
+        # Use config defaults only when caller hasn't explicitly set them.
+        # Pydantic defaults are used for validation; here we just forward
+        # whatever the caller sent.
         response = await correlator.correlate_incident(request)
         return response
     except Exception as e:
@@ -193,13 +194,14 @@ async def compute_blast_radius(
     service_name: str,
     namespace: str | None = None,
     max_hops: int = 3,
+    tenant_id: str = "demo-tenant",
 ) -> BlastRadiusResult:
     """Compute blast radius for a service"""
     if not correlator:
         raise HTTPException(status_code=503, detail="Correlator not initialized")
 
     try:
-        result = await correlator.compute_blast_radius(service_name, namespace, max_hops)
+        result = await correlator.compute_blast_radius(service_name, namespace, max_hops, tenant_id)
         return result
     except Exception as e:
         logger.error(f"Blast radius computation failed: {e}", exc_info=True)
@@ -238,11 +240,7 @@ async def create_training_example(
     candidate: CandidateRanking,
     is_root_cause: bool,
 ) -> dict[str, str]:
-    """
-    Create a training example from a confirmed incident.
-
-    Called when an incident is resolved and ground truth is known.
-    """
+    """Create a training example from a confirmed incident."""
     if not correlator:
         raise HTTPException(status_code=503, detail="Correlator not initialized")
 
@@ -266,6 +264,7 @@ async def main():
 
         class Config:
             env_file = ".env"
+            extra = "ignore"
 
     settings = Settings()
 

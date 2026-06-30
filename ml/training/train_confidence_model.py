@@ -1,8 +1,7 @@
 """
 ML Training Pipeline for ChangeTrace
 
-Trains confidence model (root cause ranking) and risk model (deployment risk scoring).
-Uses scikit-learn / LightGBM with Azure ML for experiment tracking.
+Trains confidence and risk models using scikit-learn / LightGBM.
 """
 
 import logging
@@ -34,9 +33,6 @@ logger = logging.getLogger(__name__)
 class ConfidenceModelTrainer:
     """
     Trainer for the root cause confidence model.
-
-    Uses LightGBM with calibration for well-calibrated probabilities.
-    Features: graph topology, temporal proximity, change characteristics, historical patterns.
     """
 
     def __init__(
@@ -99,28 +95,18 @@ class ConfidenceModelTrainer:
     ) -> ModelMetrics:
         """
         Train the confidence model.
-
-        Args:
-            examples: List of training examples with features and labels
-            validation_split: Fraction of data to use for validation
-            early_stopping_rounds: Early stopping patience
-
-        Returns:
-            ModelMetrics with evaluation results
         """
         if len(examples) < 10:
             raise ValueError(f"Need at least 10 training examples, got {len(examples)}")
 
         X, y, weights = self.prepare_training_data(examples)
 
-        # Split data
         X_train, X_val, y_train, y_val, w_train, w_val = train_test_split(
             X, y, weights, test_size=validation_split, random_state=42, stratify=y
         )
 
         logger.info(f"Train: {len(X_train)}, Val: {len(X_val)}")
 
-        # Train base model
         self.model = lgb.LGBMClassifier(**self.params)
         self.model.fit(
             X_train, y_train,
@@ -130,7 +116,6 @@ class ConfidenceModelTrainer:
             callbacks=[lgb.early_stopping(early_stopping_rounds), lgb.log_evaluation(0)],
         )
 
-        # Calibrate if requested
         if self.calibrate:
             logger.info("Calibrating model probabilities...")
             self.calibrated_model = CalibratedClassifierCV(
@@ -141,7 +126,6 @@ class ConfidenceModelTrainer:
         else:
             predictor = self.model
 
-        # Evaluate
         metrics = self._evaluate(predictor, X_val, y_val, w_val)
 
         self.is_trained = True
@@ -160,7 +144,6 @@ class ConfidenceModelTrainer:
         w_val: np.ndarray,
     ) -> ModelMetrics:
         """Evaluate model on validation set"""
-        # Get predictions
         y_pred_proba = predictor.predict_proba(X_val)[:, 1]
         y_pred = (y_pred_proba >= 0.5).astype(int)
 
@@ -299,7 +282,6 @@ class ConfidenceModelTrainer:
             candidate["model_version"] = self.model_version
             candidate["ranked_at"] = datetime.utcnow().isoformat()
 
-        # Sort by confidence descending
         ranked = sorted(candidates, key=lambda c: c["confidence_score"], reverse=True)
         return ranked
 
@@ -376,8 +358,6 @@ class ConfidenceModelTrainer:
 class RiskModelTrainer:
     """
     Trainer for the deployment risk scoring model.
-
-    Binary classifier predicting whether a deployment will cause an incident.
     """
 
     def __init__(self, **kwargs):
@@ -456,9 +436,6 @@ def generate_synthetic_training_data(
 ) -> list[TrainingExample]:
     """
     Generate synthetic training data for bootstrapping.
-
-    Creates realistic feature vectors with known labels based on
-    simulated service topology and change patterns.
     """
     np.random.seed(42)
     examples = []
@@ -469,14 +446,11 @@ def generate_synthetic_training_data(
         incident_id = f"INC-{i:06d}"
         change_event_id = f"evt-{i:06d}"
 
-        # Random service
-        np.random.choice(service_names)
+        service = np.random.choice(service_names)
 
-        # Generate features
         graph_distance = np.random.randint(0, 4)
         time_delta_hours = np.random.exponential(2.0)
 
-        # Change type
         change_types = ["code_deployment", "config_change", "infrastructure_change", "rollback"]
         change_type = np.random.choice(change_types, p=[0.5, 0.2, 0.2, 0.1])
 
@@ -543,29 +517,7 @@ def generate_synthetic_training_data(
     return examples
 
 
-async def load_training_data_from_cosmos(num_examples: int = 1000) -> list[TrainingExample]:
-    """
-    Load training data from Cosmos DB.
-
-    This would query the training data container for labeled examples.
-    For now, returns synthetic data as fallback.
-    """
-    logger.warning("Cosmos DB training data loading not fully implemented, using synthetic data")
-    return generate_synthetic_training_data(num_examples)
-
-
-async def load_training_data_from_cosmos_risk(num_examples: int = 1000) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Load risk model training data from Cosmos DB.
-
-    Returns feature matrix X and labels y.
-    """
-    logger.warning("Cosmos DB training data loading not fully implemented, using synthetic data")
-    from train_risk_model import generate_synthetic_deployment_data
-    return generate_synthetic_deployment_data(num_examples)
-
-
-async def main():
+def main():
     """Main training entry point"""
     import argparse
 
@@ -586,34 +538,27 @@ async def main():
         if args.use_synthetic:
             examples = generate_synthetic_training_data(args.num_examples)
         else:
-            # Load real training data from Cosmos DB
-            examples = load_training_data_from_cosmosrgs.num_examples)
+            examples = load_training_data_from_cosmos_db(args.num_examples)
 
         metrics = trainer.train(examples)
         trainer.save(output_dir / f"confidence_model_{trainer.model_version}.pkl")
 
-        logger.info(f"Confidence model metrics: {metrics.to_dict()}")
+        logger.info(f"Confidence model metrics: {metrics.model_dump()}")
 
     if args.model_type in ["risk", "both"]:
         logger.info("Training risk model...")
-        from train_risk_model import RiskModelTrainer, generate_synthetic_deployment_data
-
-        risk_trainer = RiskModelTrainer()
-
-        if args.use_synthetic:
-            X, y = generate_synthetic_deployment_data(args.num_examples)
-        else:
-            # Load real training data from Cosmos DB
-            X, y = load_training_data_from_cosmos(args.num_examples)
-
-        metrics = risk_trainer.train(X, y)
-        risk_trainer.save(output_dir / f"risk_model_{risk_trainer.model_version}.pkl")
-
-        logger.info(f"Risk model metrics: {metrics}")
+        try:
+            from ml.training.train_risk_model import RiskModelTrainer, generate_synthetic_risk_data
+            risk_trainer = RiskModelTrainer()
+            risk_examples = generate_synthetic_risk_data(args.num_examples)
+            risk_metrics = risk_trainer.train(risk_examples)
+            risk_trainer.save(output_dir / f"risk_model_{risk_trainer.model_version}.pkl")
+            logger.info(f"Risk model metrics: {risk_metrics}")
+        except Exception as e:
+            logger.error(f"Failed to train risk model: {e}")
 
     logger.info("Training complete!")
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()

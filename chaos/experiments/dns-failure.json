@@ -15,7 +15,7 @@
     },
     "targetServiceLabel": {
       "type": "string",
-      "defaultValue": "app=payments"
+      "defaultValue": "app=changetrace-risk-engine"
     },
     "durationMinutes": {
       "type": "int",

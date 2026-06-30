@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: changetrace-dashboard-api
+  namespace: changetrace
+  labels:
+    app: changetrace-dashboard-api
+    component: dashboard-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: changetrace-dashboard-api
+  template:
+    metadata:
+      labels:
+        app: changetrace-dashboard-api
+        component: dashboard-api
+        azure.workload.identity/use: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+    spec:
+      serviceAccountName: changetrace-dashboard-api
+      imagePullSecrets:
+        - name: acr-pull-secret
+      tolerations:
+        - key: "node.kubernetes.io/disk-pressure"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: dashboard-api
+          image: changetrace29r2ywacr.azurecr.io/dashboard_api:v32
+          ports:
+            - containerPort: 8002
+          env:
+            - name: COSMOS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-cosmos-secret
+                  key: cosmos-connection-string
+            - name: COSMOS_DB_DATABASE
+              value: "changetrace-graph"
+            - name: COSMOS_DB_GRAPH
+              value: "dependency-graph"
+            - name: DEFAULT_TENANT_ID
+              value: "demo-tenant"
+            - name: ENVIRONMENT
+              value: "production"
+            - name: KEY_VAULT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-keyvault-secret
+                  key: vault-url
+            - name: AZURE_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-keyvault-secret
+                  key: tenant-id
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-keyvault-secret
+                  key: client-id
+            - name: SIMPLE_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: changetrace-simple-auth-secret
+                  key: simple-auth-secret
+            - name: LOG_LEVEL
+              value: "info"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8002
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: changetrace-dashboard-api
+  namespace: changetrace
+  labels:
+    app: changetrace-dashboard-api
+spec:
+  ports:
+    - port: 8002
+      targetPort: 8002
+      name: http
+  selector:
+    app: changetrace-dashboard-api

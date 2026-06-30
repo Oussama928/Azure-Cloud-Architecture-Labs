@@ -26,3 +26,9 @@ async-timeout==4.0.3
 # Utilities
 tenacity==8.2.3
 python-json-logger==2.0.7
+PyJWT==2.8.0
+cryptography==42.0.0
+
+# Real-time OTLP ingestion
+opentelemetry-proto==1.24.0
+protobuf>=4.25,<6

@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: changetrace-demo-driver
+  namespace: changetrace
+  labels:
+    app: changetrace-demo-driver
+    component: demo-driver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: changetrace-demo-driver
+  template:
+    metadata:
+      labels:
+        app: changetrace-demo-driver
+        component: demo-driver
+    spec:
+      imagePullSecrets:
+        - name: acr-pull-secret
+      containers:
+        - name: demo-driver
+          image: changetrace29r2ywacr.azurecr.io/demo-driver:v11
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8007
+          env:
+            - name: COSMOS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  key: cosmos-connection-string
+                  name: changetrace-cosmos-secret
+            - name: COSMOS_DB_DATABASE
+              value: changetrace-graph
+            - name: COSMOS_DB_GRAPH
+              value: dependency-graph
+            - name: DEMO_TENANT_ID
+              value: tenant-e5f171a28217
+            - name: INTERNAL_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: internal-auth-token
+                  name: changetrace-internal-secret
+            - name: CORRELATION_ENGINE_URL
+              value: http://changetrace-correlation-engine:8003
+            - name: DEMO_SVC_PORT
+              value: "8080"
+            - name: DEMO_SVC_NAMESPACE
+              value: "store"
+            - name: DEMO_DRIVER_PORT
+              value: "8007"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8007
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8007
+            initialDelaySeconds: 10
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: changetrace-demo-driver
+  namespace: changetrace
+  labels:
+    app: changetrace-demo-driver
+spec:
+  ports:
+    - port: 8007
+      targetPort: 8007
+      name: http
+  selector:
+    app: changetrace-demo-driver

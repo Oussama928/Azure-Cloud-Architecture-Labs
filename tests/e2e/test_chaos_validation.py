@@ -1,15 +1,9 @@
-"""
-Chaos Validation Tests for ChangeTrace
-
-Tests the correlation engine against known-cause faults injected via Azure Chaos Studio.
-"""
+"""Chaos Validation Tests for ChangeTrace: correlation engine vs known-cause faults injected via Azure Chaos Studio."""
 
 import pytest
-import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-# Import the evaluation harness
 from chaos.scripts.evaluate_precision_recall import EvaluationHarness
 
 
@@ -46,7 +40,6 @@ class TestChaosValidation:
             "detected_at": datetime.utcnow().isoformat()
         }
         
-        # Run correlation
         with patch('services.correlation_engine.src.main.Correlator') as mock_correlator:
             mock_correlator_instance = AsyncMock()
             mock_correlator_instance.correlate_incident = AsyncMock(return_value={
@@ -69,7 +62,6 @@ class TestChaosValidation:
             correlator = Correlator()
             result = await correlator.correlate_incident(incident)
         
-        # Verify correct root cause identified
         assert len(result["candidates"]) > 0
         top_candidate = result["candidates"][0]
         assert top_candidate["service_name"] == "payment-service"

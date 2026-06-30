@@ -89,6 +89,15 @@ resource "azurerm_key_vault" "main" {
   tags = var.common_tags
 }
 
+# Key Vault access policy for GitHub Actions service principal (for CI/CD)
+resource "azurerm_key_vault_access_policy" "github_actions" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = var.github_actions_sp_object_id
+
+  secret_permissions = ["Get", "List", "Set", "Delete", "Recover"]
+}
+
 # Key Vault access policy for the current user (for development)
 resource "azurerm_key_vault_access_policy" "current_user" {
   key_vault_id = azurerm_key_vault.main.id
@@ -99,17 +108,6 @@ resource "azurerm_key_vault_access_policy" "current_user" {
   key_permissions         = ["Get", "List", "Create", "Delete", "Recover", "Backup", "Restore"]
   certificate_permissions = ["Get", "List", "Create", "Delete", "Recover", "Backup", "Restore"]
 }
-
-# Key Vault access policy for GitHub Actions service principal (for CI/CD)
-# NOTE: Already created manually via `az keyvault set-policy`.
-# If re-creating from scratch, uncomment this block.
-# resource "azurerm_key_vault_access_policy" "github_actions" {
-#   key_vault_id = azurerm_key_vault.main.id
-#   tenant_id    = data.azurerm_client_config.current.tenant_id
-#   object_id    = var.github_actions_sp_object_id
-# 
-#   secret_permissions = ["Get", "List", "Set", "Delete", "Recover"]
-# }
 
 # Cosmos DB Account (Free tier)
 resource "azurerm_cosmosdb_account" "main" {
@@ -406,6 +404,30 @@ resource "azurerm_role_assignment" "function_app_acr_pull" {
 
 # Data sources
 data "azurerm_client_config" "current" {}
+
+# AKS Cluster Module (enabled via enable_aks variable)
+module "aks" {
+  source                          = "./modules/aks"
+  enable_aks                      = var.enable_aks
+  environment                     = var.environment
+  location                        = var.location
+  resource_group_name             = azurerm_resource_group.main.name
+  node_vm_size                    = var.aks_node_vm_size
+  workload_vm_size                = var.aks_node_vm_size
+  node_count                      = var.aks_node_count
+  min_node_count                  = 1
+  max_node_count                  = 3
+  workload_node_count             = 1
+  workload_min_count              = 0
+  workload_max_count              = 3
+  availability_zones              = []
+  api_server_authorized_ip_ranges = []
+  github_repository               = var.github_repository
+  key_vault_id                    = azurerm_key_vault.main.id
+  cosmos_db_id                    = azurerm_cosmosdb_account.main.id
+  acr_id                          = azurerm_container_registry.main.id
+  common_tags                     = var.common_tags
+}
 
 output "function_app_name" {
   value = azurerm_linux_function_app.main.name

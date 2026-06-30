@@ -21,6 +21,10 @@ spec:
         prometheus.io/port: "8889"
     spec:
       serviceAccountName: otel-collector
+      tolerations:
+        - key: "node.kubernetes.io/disk-pressure"
+          operator: "Exists"
+          effect: "NoSchedule"
       containers:
         - name: otel-collector
           image: otel/opentelemetry-collector-contrib:0.106.0
@@ -31,6 +35,19 @@ spec:
             - containerPort: 4317  # OTLP gRPC
             - containerPort: 4318  # OTLP HTTP
             - containerPort: 8889  # Prometheus
+            - containerPort: 13133 # health_check extension
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 5
+            periodSeconds: 10
           volumeMounts:
             - name: config
               mountPath: /conf

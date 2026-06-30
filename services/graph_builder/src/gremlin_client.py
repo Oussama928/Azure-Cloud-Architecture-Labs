@@ -1,8 +1,4 @@
-"""
-Gremlin Client for ChangeTrace Graph Builder
-
-Provides async Gremlin client for Cosmos DB.
-"""
+"""Gremlin Client for ChangeTrace Graph Builder."""
 
 import logging
 import os
@@ -40,7 +36,6 @@ class GremlinClient:
         if not self.endpoint or not self.key:
             raise ValueError("Cosmos DB endpoint and key required")
         
-        # Parse endpoint for Gremlin
         # Format: https://account.gremlin.cosmos.azure.com:443/
         import urllib.parse
         parsed = urllib.parse.urlparse(self.endpoint)
@@ -100,13 +95,14 @@ class GremlinClient:
     
     # Convenience methods for common operations
     
-    async def upsert_service(self, service_name: str, properties: Dict[str, Any]) -> None:
+    async def upsert_service(self, service_name: str, properties: Dict[str, Any], tenant_id: str | None = None) -> None:
         """Upsert a service vertex."""
+        tenant_id = tenant_id or os.getenv("DEFAULT_TENANT_ID", "demo-tenant")
         g = self.get_traversal()
         
-        query = g.V().has('serviceName', service_name).fold().coalesce(
+        query = g.V().hasLabel('Service').has('serviceName', service_name).has('tenantId', tenant_id).fold().coalesce(
             __.unfold(),
-            __.addV('Service').property('serviceName', service_name)
+            __.addV('Service').property('serviceName', service_name).property('tenantId', tenant_id)
         )
         
         for key, value in properties.items():
@@ -118,13 +114,15 @@ class GremlinClient:
         self,
         source_service: str,
         target_service: str,
-        properties: Dict[str, Any]
+        properties: Dict[str, Any],
+        tenant_id: str | None = None,
     ) -> None:
         """Upsert a dependency edge."""
+        tenant_id = tenant_id or os.getenv("DEFAULT_TENANT_ID", "demo-tenant")
         g = self.get_traversal()
         
-        query = g.V().has('serviceName', source_service).as_('s') \
-            .V().has('serviceName', target_service).as_('t') \
+        query = g.V().hasLabel('Service').has('serviceName', source_service).has('tenantId', tenant_id).as_('s') \
+            .V().hasLabel('Service').has('serviceName', target_service).has('tenantId', tenant_id).as_('t') \
             .coalesce(
                 __.inE('depends_on').where(__.outV().as_('s')),
                 __.addE('depends_on').from_('s').to('t')
@@ -138,12 +136,14 @@ class GremlinClient:
     async def get_blast_radius(
         self,
         service_name: str,
-        max_hops: int = 3
+        max_hops: int = 3,
+        tenant_id: str | None = None,
     ) -> Dict[str, Any]:
         """Get blast radius from a service."""
+        tenant_id = tenant_id or os.getenv("DEFAULT_TENANT_ID", "demo-tenant")
         g = self.get_traversal()
         
-        query = g.V().has('serviceName', service_name) \
+        query = g.V().hasLabel('Service').has('serviceName', service_name).has('tenantId', tenant_id) \
             .repeat(__.in_('depends_on').simplePath()) \
             .times(max_hops) \
             .emit() \
@@ -152,8 +152,7 @@ class GremlinClient:
         
         affected = [r for r in query if r != service_name]
         
-        # Get paths
-        paths_query = g.V().has('serviceName', service_name) \
+        paths_query = g.V().hasLabel('Service').has('serviceName', service_name).has('tenantId', tenant_id) \
             .repeat(__.in_('depends_on').simplePath()) \
             .times(max_hops) \
             .until(__.has('serviceName', within(affected))) \
@@ -174,19 +173,21 @@ class GremlinClient:
     async def get_service_dependencies(
         self,
         service_name: str,
-        direction: str = "both"
+        direction: str = "both",
+        tenant_id: str | None = None,
     ) -> Dict[str, List[str]]:
         """Get direct dependencies for a service."""
+        tenant_id = tenant_id or os.getenv("DEFAULT_TENANT_ID", "demo-tenant")
         g = self.get_traversal()
         
         results = {"upstream": [], "downstream": []}
         
         if direction in ("in", "both"):
-            query = g.V().has('serviceName', service_name).in_('depends_on').values('serviceName')
+            query = g.V().hasLabel('Service').has('serviceName', service_name).has('tenantId', tenant_id).in_('depends_on').values('serviceName')
             results["upstream"] = list(query)
         
         if direction in ("out", "both"):
-            query = g.V().has('serviceName', service_name).out('depends_on').values('serviceName')
+            query = g.V().hasLabel('Service').has('serviceName', service_name).has('tenantId', tenant_id).out('depends_on').values('serviceName')
             results["downstream"] = list(query)
         
         return results
