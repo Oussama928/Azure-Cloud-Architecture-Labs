@@ -1,0 +1,79 @@
+name: Notify ChangeTrace
+
+on:
+  push:
+    branches: [changetrace-demo]
+  workflow_dispatch:
+
+concurrency:
+  group: changetrace-notify
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Build ChangeEvent payload
+        id: payload
+        shell: bash
+        run: |
+          COMMIT_MSG="$(git log -1 --format=%B | head -c 2000)"
+          jq -n \
+            --arg tenant "${{ vars.CHANGETRACE_TENANT_ID }}" \
+            --arg service "${{ vars.CHANGETRACE_SERVICE }}" \
+            --arg sha "${{ github.sha }}" \
+            --arg ref "${{ github.ref_name }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg server "${{ github.server_url }}" \
+            --arg run "${{ github.run_id }}" \
+            --arg msg "$COMMIT_MSG" \
+            '{
+              tenant_id: $tenant,
+              events: [{
+                change_type: "code_deployment",
+                source: "github",
+                status: "succeeded",
+                service_name: $service,
+                environment: "production",
+                author: $actor,
+                author_email: $actor,
+                description: $msg,
+                summary: $msg,
+                git: {
+                  repo_url: ($server + "/" + $repo),
+                  repo_name: $repo,
+                  commit_sha: $sha,
+                  commit_message: $msg,
+                  branch: $ref,
+                  author: $actor,
+                  commit_url: ($server + "/" + $repo + "/commit/" + $sha)
+                },
+                pipeline_name: ("github/" + $repo),
+                pipeline_run_id: $run,
+                pipeline_url: ($server + "/" + $repo + "/actions/runs/" + $run)
+              }]
+            }' > /tmp/changetrace-payload.json
+          echo "--- payload ---"
+          jq . /tmp/changetrace-payload.json
+
+      - name: Send ChangeEvent to ChangeTrace
+        shell: bash
+        run: |
+          response=$(curl -sS -o /tmp/changetrace-response.json -w "%{http_code}" \
+            -X POST "${{ vars.CHANGETRACE_INGEST_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.CHANGETRACE_API_KEY }}" \
+            --data @/tmp/changetrace-payload.json)
+          echo "HTTP $response"
+          cat /tmp/changetrace-response.json
+          echo
+          if [ "$response" != "200" ]; then
+            echo "::error::ChangeTrace ingest failed with HTTP $response"
+            exit 1
+          fi
